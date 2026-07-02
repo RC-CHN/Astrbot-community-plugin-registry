@@ -5,3 +5,10 @@ members = ["registry"]
 name = "tsinghua"
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
+
+[tool.pytest.ini_options]
+testpaths = ["registry/tests"]
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient`",
+]

@@ -1,0 +1,63 @@
+version: "3.9"
+
+# 开发环境中间件：轻量级，2C2G/4C4G 服务器也能跑
+# 不包含 registry/dashboard 本体，方便直接用 uv run serve 启动后端
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: astrbot-registry-pg-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: astrbot_registry
+      POSTGRES_USER: astrbot
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-astrbot_secret}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    mem_limit: 512m
+    cpus: "1.0"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U astrbot -d astrbot_registry"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: astrbot-registry-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    mem_limit: 128m
+    cpus: "0.25"
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: astrbot-registry-s3-dev
+    restart: unless-stopped
+    command: server -s3 -s3.config=/etc/seaweedfs/s3.json -dir=/data
+    environment:
+      WEED_S3_CONFIG: /etc/seaweedfs/s3.json
+    volumes:
+      - s3_data:/data
+      - ./s3.json:/etc/seaweedfs/s3.json:ro
+    ports:
+      - "8333:8333"   # S3 API
+      - "8888:8888"   # Filer UI
+      - "9333:9333"   # Master UI
+    mem_limit: 256m
+    cpus: "0.5"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8333/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pg_data:
+  redis_data:
+  s3_data:

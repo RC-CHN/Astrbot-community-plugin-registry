@@ -1,4 +1,10 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
+
+
+# Project root, so .env is always loaded from the repo root regardless of CWD.
+ROOT_DIR = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
@@ -16,6 +22,7 @@ class Settings(BaseSettings):
     s3_bucket: str = "astrbot-plugins"
     s3_public_url: str = "http://localhost:8333/astrbot-plugins"
     s3_region: str = "us-east-1"
+    s3_auto_create_bucket: bool = True
 
     # JWT
     jwt_secret: str = "change-me-in-production"
@@ -33,7 +40,7 @@ class Settings(BaseSettings):
     log_level: str = "info"
 
     model_config = {
-        "env_file": ".env",
+        "env_file": ROOT_DIR / ".env",
         "env_file_encoding": "utf-8",
     }
 
