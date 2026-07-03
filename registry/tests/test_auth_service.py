@@ -7,6 +7,7 @@ from astrbot_registry.services.auth_service import (
     get_password_hash,
     verify_password,
 )
+from astrbot_registry.models import User
 
 
 def test_password_hash() -> None:
@@ -25,3 +26,8 @@ def test_token_encode_decode() -> None:
 
 def test_decode_invalid_token() -> None:
     assert decode_token("not-a-valid-token") is None
+
+
+def test_inactive_user_model_flag() -> None:
+    user = User(username="disabled", password_hash="hash", role="reviewer", is_active=False)
+    assert user.is_active is False

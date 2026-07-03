@@ -4,6 +4,7 @@ from .scan import SecurityScan
 from .tag import Tag, plugin_tags
 from .user import User
 from .version import PluginVersion
+from .webhook import WebhookEvent
 
 __all__ = [
     "Plugin",
@@ -13,4 +14,5 @@ __all__ = [
     "plugin_tags",
     "PluginI18n",
     "User",
+    "WebhookEvent",
 ]

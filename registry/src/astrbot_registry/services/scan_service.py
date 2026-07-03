@@ -3,6 +3,7 @@
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from ..models import PluginVersion, SecurityScan
 
@@ -17,14 +18,21 @@ async def scan_version(db: AsyncSession, version_id: uuid.UUID) -> SecurityScan:
     if version is None:
         raise ValueError("Version not found")
 
-    scan = SecurityScan(
-        version_id=version.id,
-        virustotal_pass=True,
-        virustotal_msg="Scan not configured",
-        llm_agent_pass=True,
-        llm_agent_msg="Scan not configured",
+    result = await db.execute(
+        select(SecurityScan).where(SecurityScan.version_id == version.id)
     )
-    db.add(scan)
+    scan = result.scalar_one_or_none()
+    if scan is None:
+        scan = SecurityScan(version_id=version.id)
+        db.add(scan)
+
+    scan.virustotal_pass = True
+    scan.virustotal_msg = "Scan not configured"
+    scan.llm_agent_pass = True
+    scan.llm_agent_msg = "Scan not configured"
     await db.commit()
     await db.refresh(scan)
+    from ..services.registry_service import refresh_cache
+
+    await refresh_cache(db)
     return scan

@@ -1,6 +1,8 @@
+import hashlib
+import hmac
+import json
 import tempfile
 import uuid
-import zipfile
 from pathlib import Path
 
 from fastapi import (
@@ -10,15 +12,17 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Request,
     UploadFile,
     status,
 )
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..api.deps import get_current_admin, get_current_user, get_db
+from ..api.deps import get_current_admin, get_current_reviewer, get_db
+from ..config import settings
 from ..database import async_session
-from ..models import Plugin, User
+from ..models import Plugin, User, WebhookEvent
 from ..schemas.admin import (
     LoginRequest,
     PluginCreateRequest,
@@ -44,8 +48,15 @@ from ..services.plugin_service import (
 )
 from ..services.registry_service import refresh_cache
 from ..services.scan_service import scan_version
+from ..services.task_queue import enqueue_task
 from ..utils.git_utils import clone_repo, get_metadata_path, temp_repo_dir
 from ..utils.metadata_parser import parse_metadata_yaml
+from ..utils.zip_utils import (
+    ZipValidationError,
+    find_metadata_yaml,
+    inspect_zip,
+    safe_unzip,
+)
 
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -68,20 +79,60 @@ async def _scan_version_task(version_id: str) -> None:
         await scan_version(db, uuid.UUID(version_id))
 
 
+async def _enqueue_or_fallback(
+    background_tasks: BackgroundTasks,
+    task_type: str,
+    payload: dict,
+) -> None:
+    queued = await enqueue_task(task_type, payload)
+    if queued:
+        return
+    if task_type == "build":
+        background_tasks.add_task(
+            _build_version_task,
+            payload["plugin_id"],
+            payload["version"],
+            payload.get("ref"),
+            payload.get("user_id", ""),
+        )
+    elif task_type == "scan":
+        background_tasks.add_task(_scan_version_task, payload["version_id"])
+
+
 async def _process_uploaded_zip(
     file: UploadFile,
     workdir: Path,
 ) -> tuple:
     zip_path = workdir / (file.filename or "upload.zip")
+    total = 0
     with open(zip_path, "wb") as f:
-        f.write(await file.read())
+        while chunk := await file.read(1024 * 1024):
+            total += len(chunk)
+            if total > settings.max_upload_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="Uploaded zip is too large",
+                )
+            f.write(chunk)
+
+    try:
+        inspect_zip(
+            zip_path,
+            max_total_uncompressed_bytes=settings.max_unzip_bytes,
+            max_file_count=settings.max_zip_entries,
+            max_single_file_bytes=settings.max_single_file_bytes,
+        )
+    except ZipValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     extract_dir = workdir / "extracted"
     extract_dir.mkdir()
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        zf.extractall(extract_dir)
+    try:
+        safe_unzip(zip_path, extract_dir)
+        metadata = parse_metadata_yaml(find_metadata_yaml(extract_dir))
+    except ZipValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    metadata = parse_metadata_yaml(extract_dir / "metadata.yaml")
     return metadata, zip_path
 
 
@@ -142,10 +193,10 @@ async def submit_plugin(
     request: PluginCreateRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_reviewer),
 ) -> dict:
     with temp_repo_dir() as repo_dir:
-        clone_repo(request.repo_url, repo_dir, ref=request.ref)
+        clone_repo(request.repo_url, repo_dir, ref=request.ref, timeout=settings.git_clone_timeout)
         metadata = parse_metadata_yaml(get_metadata_path(repo_dir))
 
     plugin = await create_plugin(
@@ -156,21 +207,25 @@ async def submit_plugin(
     )
     version = request.version or metadata.version
 
-    background_tasks.add_task(
-        _build_version_task,
-        str(plugin.id),
-        version,
-        request.ref,
-        str(current_user.id),
+    await _enqueue_or_fallback(
+        background_tasks,
+        "build",
+        {
+            "plugin_id": str(plugin.id),
+            "version": version,
+            "ref": request.ref,
+            "user_id": str(current_user.id),
+        },
     )
     return {"plugin_id": str(plugin.id), "version": version, "status": "queued"}
 
 
 @admin_router.post("/plugins/upload")
 async def upload_plugin(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_reviewer),
 ) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
@@ -189,6 +244,11 @@ async def upload_plugin(
             metadata.version,
             created_by=current_user.id,
         )
+        await _enqueue_or_fallback(
+            background_tasks,
+            "scan",
+            {"version_id": str(version.id)},
+        )
     return {"plugin_id": str(plugin.id), "version_id": str(version.id)}
 
 
@@ -197,7 +257,7 @@ async def update_plugin_endpoint(
     plugin_id: str,
     data: dict,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_reviewer),
 ) -> dict:
     from ..schemas.plugin import PluginUpdate
 
@@ -222,7 +282,7 @@ async def delete_plugin_endpoint(
 async def list_versions_endpoint(
     plugin_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_reviewer),
 ) -> list:
     versions = await list_versions(db, uuid.UUID(plugin_id))
     return [
@@ -247,18 +307,21 @@ async def create_version_from_repo(
     request: VersionCreate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_reviewer),
 ) -> dict:
     plugin = await get_plugin(db, uuid.UUID(plugin_id))
     if plugin is None:
         raise HTTPException(status_code=404, detail="Plugin not found")
 
-    background_tasks.add_task(
-        _build_version_task,
-        plugin_id,
-        request.version,
-        request.ref,
-        str(current_user.id),
+    await _enqueue_or_fallback(
+        background_tasks,
+        "build",
+        {
+            "plugin_id": plugin_id,
+            "version": request.version,
+            "ref": request.ref,
+            "user_id": str(current_user.id),
+        },
     )
     return {"plugin_id": plugin_id, "version": request.version, "status": "queued"}
 
@@ -266,11 +329,12 @@ async def create_version_from_repo(
 @admin_router.post("/plugins/{plugin_id}/versions/upload")
 async def upload_version(
     plugin_id: str,
+    background_tasks: BackgroundTasks,
     version: str = Form(...),
     changelog: str = Form(""),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_reviewer),
 ) -> dict:
     plugin = await get_plugin(db, uuid.UUID(plugin_id))
     if plugin is None:
@@ -289,6 +353,7 @@ async def upload_version(
             changelog,
             created_by=current_user.id,
         )
+        await _enqueue_or_fallback(background_tasks, "scan", {"version_id": str(pv.id)})
     return {"version_id": str(pv.id)}
 
 
@@ -298,7 +363,7 @@ async def set_latest(
     version_id: str,
     request: SetLatestRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_reviewer),
 ) -> dict:
     if not request.is_latest:
         raise HTTPException(status_code=400, detail="Setting is_latest=false is not supported")
@@ -312,7 +377,7 @@ async def update_version_status(
     version_id: str,
     request: VersionStatusUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_reviewer),
 ) -> dict:
     await set_version_status(db, uuid.UUID(version_id), request.status)
     return {"status": "updated"}
@@ -324,18 +389,21 @@ async def trigger_build(
     request: VersionCreate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_reviewer),
 ) -> dict:
     plugin = await get_plugin(db, uuid.UUID(plugin_id))
     if plugin is None:
         raise HTTPException(status_code=404, detail="Plugin not found")
 
-    background_tasks.add_task(
-        _build_version_task,
-        plugin_id,
-        request.version,
-        request.ref,
-        str(current_user.id),
+    await _enqueue_or_fallback(
+        background_tasks,
+        "build",
+        {
+            "plugin_id": plugin_id,
+            "version": request.version,
+            "ref": request.ref,
+            "user_id": str(current_user.id),
+        },
     )
     return {"status": "queued"}
 
@@ -346,9 +414,9 @@ async def trigger_scan(
     version_id: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_reviewer),
 ) -> dict:
-    background_tasks.add_task(_scan_version_task, version_id)
+    await _enqueue_or_fallback(background_tasks, "scan", {"version_id": version_id})
     return {"status": "queued"}
 
 
@@ -366,7 +434,7 @@ async def update_plugin_status(
 @admin_router.get("/plugins/pending")
 async def pending_plugins(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_reviewer),
 ) -> list:
     result = await db.execute(select(Plugin).where(Plugin.status == "pending"))
     plugins = result.scalars().all()
@@ -386,7 +454,7 @@ async def pending_plugins(
 @admin_router.get("/stats")
 async def admin_stats(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ) -> dict:
     total = await db.scalar(select(func.count(Plugin.id)))
     pending = await db.scalar(
@@ -406,12 +474,38 @@ async def refresh_cache_endpoint(
 
 @admin_router.post("/webhooks/github")
 async def github_webhook(
-    payload: dict,
+    request: Request,
     background_tasks: BackgroundTasks,
 ) -> dict:
+    body = await request.body()
+    if settings.github_webhook_secret:
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        expected = "sha256=" + hmac.new(
+            settings.github_webhook_secret.encode("utf-8"),
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload") from exc
+
     repo_url = payload.get("repository", {}).get("html_url")
     ref = payload.get("ref", "").replace("refs/heads/", "")
     if not repo_url or not ref:
+        async with async_session() as db:
+            db.add(
+                WebhookEvent(
+                    event_type="push",
+                    payload=payload,
+                    status="ignored",
+                    error_message="missing repository html_url or ref",
+                )
+            )
+            await db.commit()
         return {"status": "ignored"}
 
     async with async_session() as db:
@@ -419,14 +513,33 @@ async def github_webhook(
         plugin = result.scalar_one_or_none()
 
     if plugin is None:
+        async with async_session() as db:
+            db.add(
+                WebhookEvent(
+                    event_type="push",
+                    payload=payload,
+                    status="ignored",
+                    error_message=f"repository is not registered: {repo_url}",
+                )
+            )
+            await db.commit()
         return {"status": "ignored"}
 
+    async with async_session() as db:
+        db.add(
+            WebhookEvent(
+                plugin_id=plugin.id,
+                event_type="push",
+                payload=payload,
+                status="success",
+            )
+        )
+        await db.commit()
+
     # We do not know the version from a push event; the build task will read metadata.yaml.
-    background_tasks.add_task(
-        _build_version_task,
-        str(plugin.id),
-        "auto",
-        ref,
-        "",
+    await _enqueue_or_fallback(
+        background_tasks,
+        "build",
+        {"plugin_id": str(plugin.id), "version": "auto", "ref": ref, "user_id": ""},
     )
     return {"status": "queued"}

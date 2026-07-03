@@ -40,6 +40,18 @@ class Settings(BaseSettings):
     llm_agent_base_url: str = ""
     llm_agent_api_key: str = ""
 
+    # Upload/build limits
+    max_upload_bytes: int = 50 * 1024 * 1024
+    max_unzip_bytes: int = 200 * 1024 * 1024
+    max_zip_entries: int = 2000
+    max_single_file_bytes: int = 50 * 1024 * 1024
+    max_release_zip_bytes: int = 50 * 1024 * 1024
+    git_clone_timeout: int = 120
+    build_network_disabled: bool = True
+
+    # Webhooks
+    github_webhook_secret: str = ""
+
     # App
     log_level: str = "info"
 

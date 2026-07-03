@@ -8,7 +8,7 @@ class PluginBase(BaseModel):
     display_name: str | None = Field(None, max_length=255)
     description: str
     author: str = Field(..., max_length=255)
-    repo_url: HttpUrl
+    repo_url: HttpUrl | None = None
     social_link: HttpUrl | None = None
     category: str | None = Field(None, max_length=100)
     tags: list[str] = []

@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
+from astrbot_registry.api.public import public_router
 
 
 def test_health(client: TestClient) -> None:
@@ -40,3 +41,13 @@ def test_plugins_md5_json_alias(client: TestClient) -> None:
         response = client.get("/api/v1/plugins-md5.json")
         assert response.status_code == 200
         assert response.json() == {"md5": "abc123"}
+
+
+def test_plugins_search_path_alias(client: TestClient) -> None:
+    paths = {route.path for route in public_router.routes if hasattr(route, "path")}
+    assert "/plugins/search" in paths
+
+
+def test_plugins_stats_path_alias(client: TestClient) -> None:
+    paths = {route.path for route in public_router.routes if hasattr(route, "path")}
+    assert "/plugins/stats" in paths

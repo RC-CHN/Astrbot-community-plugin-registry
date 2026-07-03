@@ -31,7 +31,12 @@ def _is_sha(ref: str) -> bool:
     return len(ref) == 40 and all(c in "0123456789abcdef" for c in ref.lower())
 
 
-def clone_repo(repo_url: str, dest: Path, ref: str | None = None) -> None:
+def clone_repo(
+    repo_url: str,
+    dest: Path,
+    ref: str | None = None,
+    timeout: int | None = None,
+) -> None:
     """Clone a git repository into ``dest``.
 
     If ``ref`` is a 40-char hex SHA, a full clone is performed and the ref is
@@ -40,6 +45,7 @@ def clone_repo(repo_url: str, dest: Path, ref: str | None = None) -> None:
     dest = Path(dest)
     if dest.exists():
         shutil.rmtree(dest)
+    parse_github_url(repo_url)
 
     try:
         if ref and _is_sha(ref):
@@ -48,12 +54,14 @@ def clone_repo(repo_url: str, dest: Path, ref: str | None = None) -> None:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=timeout,
             )
             subprocess.run(
                 ["git", "-C", str(dest), "checkout", ref],
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=timeout,
             )
         elif ref:
             subprocess.run(
@@ -61,6 +69,7 @@ def clone_repo(repo_url: str, dest: Path, ref: str | None = None) -> None:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=timeout,
             )
         else:
             subprocess.run(
@@ -68,10 +77,13 @@ def clone_repo(repo_url: str, dest: Path, ref: str | None = None) -> None:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=timeout,
             )
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr or ""
         raise GitError(f"Failed to clone {repo_url}: {stderr}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise GitError(f"Timed out cloning {repo_url}") from exc
 
 
 def get_commit_sha(repo_dir: Path) -> str:

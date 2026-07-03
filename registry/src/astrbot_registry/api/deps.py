@@ -30,10 +30,19 @@ async def get_current_user(
             detail="Invalid authentication credentials",
         )
     user = await get_user_by_id(db, user_id)
-    if user is None:
+    if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
+        )
+    return user
+
+
+async def get_current_reviewer(user: User = Depends(get_current_user)) -> User:
+    if user.role not in {"admin", "reviewer"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Reviewer privileges required",
         )
     return user
 

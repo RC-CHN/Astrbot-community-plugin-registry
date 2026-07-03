@@ -33,8 +33,13 @@ async def get_latest_version(db: AsyncSession, plugin_id: uuid.UUID) -> PluginVe
         .where(PluginVersion.plugin_id == plugin_id)
         .where(PluginVersion.is_latest.is_(True))
         .where(PluginVersion.version_status == "active")
+        .where(PluginVersion.build_status == "success")
+        .options(selectinload(PluginVersion.scan))
     )
-    return result.scalar_one_or_none()
+    version = result.scalar_one_or_none()
+    if version is None or not scan_passed(version):
+        return None
+    return version
 
 
 async def create_plugin(
@@ -59,7 +64,6 @@ async def create_plugin(
         support_platforms=metadata.support_platforms,
         astrbot_version=metadata.astrbot_version,
         status="pending",
-        created_by=created_by,
     )
     db.add(plugin)
     await db.flush()
@@ -75,6 +79,7 @@ async def create_plugin(
 
     await db.commit()
     await db.refresh(plugin)
+    await _refresh_registry_cache(db)
     return plugin
 
 
@@ -93,6 +98,7 @@ async def update_plugin(
 
     await db.commit()
     await db.refresh(plugin)
+    await _refresh_registry_cache(db)
     return plugin
 
 
@@ -107,6 +113,7 @@ async def set_plugin_status(
     plugin.status = status
     await db.commit()
     await db.refresh(plugin)
+    await _refresh_registry_cache(db)
     return plugin
 
 
@@ -117,6 +124,7 @@ async def delete_plugin(db: AsyncSession, plugin_id: uuid.UUID) -> Plugin:
     plugin.status = "deleted"
     await db.commit()
     await db.refresh(plugin)
+    await _refresh_registry_cache(db)
     return plugin
 
 
@@ -125,8 +133,8 @@ async def create_version(
     plugin: Plugin,
     version: str,
     metadata: PluginMetadata,
-    s3_key: str,
-    download_url: str,
+    s3_key: str | None,
+    download_url: str | None,
     file_size: int,
     source_type: str,
     commit_sha: str | None = None,
@@ -160,6 +168,7 @@ async def create_version(
     db.add(pv)
     await db.commit()
     await db.refresh(pv)
+    await _refresh_registry_cache(db)
     return pv
 
 
@@ -180,6 +189,7 @@ async def update_version_after_build(
     version.build_status = "success"
     await db.commit()
     await db.refresh(version)
+    await _refresh_registry_cache(db)
     return version
 
 
@@ -192,8 +202,11 @@ async def set_version_status(
     if version is None:
         raise ValueError("Version not found")
     version.version_status = status
+    if status in {"draft", "deprecated", "deleted"}:
+        version.is_latest = False
     await db.commit()
     await db.refresh(version)
+    await _refresh_registry_cache(db)
     return version
 
 
@@ -202,11 +215,32 @@ async def set_latest_version(
     plugin_id: uuid.UUID,
     version_id: uuid.UUID,
 ) -> PluginVersion:
-    version = await get_version(db, version_id)
-    if version is None or version.plugin_id != plugin_id:
+    plugin = await db.scalar(
+        select(Plugin)
+        .where(Plugin.id == plugin_id)
+        .with_for_update()
+    )
+    if plugin is None:
+        raise ValueError("Plugin not found")
+    if plugin.status != "active":
+        raise ValueError("Plugin must be active before setting latest")
+
+    result = await db.execute(
+        select(PluginVersion)
+        .where(PluginVersion.plugin_id == plugin_id)
+        .options(selectinload(PluginVersion.scan))
+        .with_for_update()
+    )
+    versions = result.scalars().all()
+    version = next((item for item in versions if item.id == version_id), None)
+    if version is None:
         raise ValueError("Version not found")
     if version.version_status != "active":
         raise ValueError("Version must be active to be set as latest")
+    if version.build_status != "success":
+        raise ValueError("Version build must be successful to be set as latest")
+    if not scan_passed(version):
+        raise ValueError("Version security scan must pass before setting latest")
 
     await db.execute(
         update(PluginVersion)
@@ -216,6 +250,7 @@ async def set_latest_version(
     version.is_latest = True
     await db.commit()
     await db.refresh(version)
+    await _refresh_registry_cache(db)
     return version
 
 
@@ -256,6 +291,7 @@ async def create_version_from_upload(
     created_by: uuid.UUID | None = None,
 ) -> PluginVersion:
     """Upload a manually provided zip and create a version record."""
+    assert_metadata_matches_plugin(metadata, plugin)
     s3_key = build_s3_key(plugin, version, "manual_upload")
     await upload_file(zip_path, s3_key)
     return await create_version(
@@ -272,6 +308,30 @@ async def create_version_from_upload(
         created_by=created_by,
         build_status="success",
     )
+
+
+def scan_passed(version: PluginVersion) -> bool:
+    scan = version.scan
+    if scan is None:
+        return False
+    return bool(scan.virustotal_pass) and bool(scan.llm_agent_pass)
+
+
+def assert_metadata_matches_plugin(metadata: PluginMetadata, plugin: Plugin) -> None:
+    expected_key = plugin.plugin_key
+    actual_key = infer_plugin_key(metadata.name)
+    if actual_key != expected_key:
+        raise ValueError(
+            f"metadata plugin key {actual_key} does not match existing plugin {expected_key}"
+        )
+    if metadata.author != plugin.author:
+        raise ValueError("metadata author does not match existing plugin")
+
+
+async def _refresh_registry_cache(db: AsyncSession) -> None:
+    from ..services.registry_service import refresh_cache
+
+    await refresh_cache(db)
 
 
 async def _ensure_tags(db: AsyncSession, names: Sequence[str]) -> Sequence[Tag]:

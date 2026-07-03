@@ -3,7 +3,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import Boolean, ForeignKey, Text, text
+from sqlalchemy import Boolean, ForeignKey, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 class SecurityScan(Base):
     __tablename__ = "security_scans"
+    __table_args__ = (UniqueConstraint("version_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         pg.UUID(as_uuid=True),

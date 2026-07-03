@@ -35,14 +35,6 @@ async def registry_md5(db: AsyncSession = Depends(get_db)) -> dict:
     return {"md5": await get_registry_md5(db)}
 
 
-@public_router.get("/plugins/{plugin_key}")
-async def get_plugin(plugin_key: str, db: AsyncSession = Depends(get_db)) -> dict:
-    registry = await generate_registry_json(db)
-    if plugin_key not in registry:
-        raise HTTPException(status_code=404, detail="Plugin not found")
-    return registry[plugin_key]
-
-
 @public_router.get("/plugin/{plugin_key}/logo")
 async def get_plugin_logo(plugin_key: str, db: AsyncSession = Depends(get_db)) -> RedirectResponse:
     plugin = await get_plugin_by_key(db, plugin_key)
@@ -62,6 +54,7 @@ async def download_plugin(plugin_key: str, db: AsyncSession = Depends(get_db)) -
     return RedirectResponse(url=latest.download_url)
 
 
+@public_router.get("/plugins/search")
 @public_router.get("/search")
 async def search_plugins(
     q: str | None = Query(None),
@@ -115,6 +108,15 @@ async def search_plugins(
     }
 
 
+@public_router.get("/plugins/stats")
 @public_router.get("/stats")
 async def registry_stats(db: AsyncSession = Depends(get_db)) -> dict:
     return await get_stats(db)
+
+
+@public_router.get("/plugins/{plugin_key}")
+async def get_plugin(plugin_key: str, db: AsyncSession = Depends(get_db)) -> dict:
+    registry = await generate_registry_json(db)
+    if plugin_key not in registry:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+    return registry[plugin_key]

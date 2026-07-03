@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from ..cache import get_redis
 from ..config import settings
 from ..models import Plugin, PluginVersion
+from ..services.plugin_service import scan_passed
 
 CACHE_KEY = "registry_json"
 MD5_KEY = "registry_md5"
@@ -33,7 +34,7 @@ async def generate_registry_json(db: AsyncSession) -> dict[str, Any]:
         registry[plugin.plugin_key] = _format_entry(plugin, latest)
 
     if client:
-        await client.set(CACHE_KEY, json.dumps(registry), ex=settings.redis_cache_ttl)
+        await client.set(CACHE_KEY, canonical_registry_json(registry), ex=settings.redis_cache_ttl)
 
     return registry
 
@@ -47,12 +48,25 @@ async def get_registry_md5(db: AsyncSession) -> str:
             return cached
 
     registry = await generate_registry_json(db)
-    md5 = hashlib.md5(json.dumps(registry, sort_keys=True).encode()).hexdigest()
+    md5 = hashlib.md5(canonical_registry_bytes(registry)).hexdigest()
 
     if redis:
         await redis.set(MD5_KEY, md5, ex=settings.redis_cache_ttl)
 
     return md5
+
+
+def canonical_registry_json(registry: dict[str, Any]) -> str:
+    return json.dumps(
+        registry,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def canonical_registry_bytes(registry: dict[str, Any]) -> bytes:
+    return canonical_registry_json(registry).encode("utf-8")
 
 
 async def refresh_cache(db: AsyncSession) -> None:
@@ -81,7 +95,12 @@ async def get_stats(db: AsyncSession) -> dict[str, Any]:
 
 def _get_latest(versions: list[PluginVersion]) -> PluginVersion | None:
     for version in versions:
-        if version.is_latest and version.version_status == "active":
+        if (
+            version.is_latest
+            and version.version_status == "active"
+            and version.build_status == "success"
+            and scan_passed(version)
+        ):
             return version
     return None
 

@@ -1,6 +1,7 @@
 """Admin-related Pydantic schemas."""
 
 from pydantic import BaseModel, Field
+from typing import Literal
 
 
 class LoginRequest(BaseModel):
@@ -16,7 +17,7 @@ class TokenResponse(BaseModel):
 class UserCreate(BaseModel):
     username: str = Field(..., max_length=100)
     password: str
-    role: str = "reviewer"
+    role: Literal["admin", "reviewer"] = "reviewer"
 
 
 class UserResponse(BaseModel):
@@ -39,11 +40,11 @@ class VersionCreate(BaseModel):
 
 
 class VersionStatusUpdate(BaseModel):
-    status: str
+    status: Literal["draft", "active", "deprecated", "deleted"]
 
 
 class PluginStatusUpdate(BaseModel):
-    status: str
+    status: Literal["pending", "active", "disabled", "deleted"]
 
 
 class SetLatestRequest(BaseModel):
