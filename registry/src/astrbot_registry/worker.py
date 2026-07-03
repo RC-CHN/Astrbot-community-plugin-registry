@@ -72,7 +72,8 @@ async def run_worker() -> None:
         except Exception as exc:
             logger.exception("Background task failed")
             if task is not None:
-                requeued = await requeue_task(task, exc)
+                async with async_session() as db:
+                    requeued = await requeue_task(task, exc, db=db)
                 if not requeued:
                     logger.error("Task moved to dead-letter queue: %s", task.get("id"))
 

@@ -11,7 +11,8 @@ from sqlalchemy.orm import selectinload
 from ..models import Plugin, PluginI18n, PluginVersion, Tag
 from ..schemas.plugin import PluginUpdate
 from ..services.errors import ConflictError, InvalidStateError, NotFoundError, ValidationError
-from ..services.s3_service import build_public_url, build_s3_key, upload_file
+from ..services.runtime_config import runtime_s3_layout, runtime_s3_public_url
+from ..services.s3_service import build_public_url_with_base, build_s3_key_with_layout, upload_file
 from ..utils.metadata_parser import PluginMetadata, infer_plugin_key
 
 
@@ -364,7 +365,9 @@ async def create_version_from_upload(
 ) -> PluginVersion:
     """Upload a manually provided zip and create a version record."""
     assert_metadata_matches_plugin(metadata, plugin)
-    s3_key = build_s3_key(plugin, version, "manual_upload")
+    s3_layout = await runtime_s3_layout(db)
+    s3_public_url = await runtime_s3_public_url(db)
+    s3_key = build_s3_key_with_layout(plugin, version, "manual_upload", **s3_layout)
     await upload_file(zip_path, s3_key)
     return await create_version(
         db=db,
@@ -372,7 +375,7 @@ async def create_version_from_upload(
         version=version,
         metadata=metadata,
         s3_key=s3_key,
-        download_url=build_public_url(s3_key),
+        download_url=build_public_url_with_base(s3_key, s3_public_url),
         file_size=zip_path.stat().st_size,
         source_type="manual_upload",
         commit_sha=None,

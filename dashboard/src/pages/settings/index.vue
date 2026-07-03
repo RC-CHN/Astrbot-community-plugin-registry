@@ -64,7 +64,7 @@ import { getSystemConfig, updateSystemConfig } from '@/api/config'
 import { queryKeys } from '@/query/keys'
 
 type ConfigInput = 'text' | 'textarea' | 'number' | 'boolean'
-type ConfigScope = '即时生效' | '需要重启 API' | '需要重启 worker'
+type ConfigScope = '即时生效' | '新任务生效' | '新产物生效' | '扫描时生效'
 type ConfigItem = {
   key: string
   label: string
@@ -76,11 +76,13 @@ type ConfigItem = {
 }
 type ConfigRow = ConfigItem & {
   value: string
+  effectiveValue: string
   overridden: boolean
+  sensitiveSet: boolean
 }
 type ReadonlyRow = {
   key: string
-  reason: string
+  value: string
 }
 
 const query = useQuery({ queryKey: queryKeys.config.system(), queryFn: getSystemConfig })
@@ -117,11 +119,19 @@ const editableItems: ConfigItem[] = [
     description: '插件源 JSON 和 MD5 的 Redis 缓存时间。',
   },
   {
+    key: 'S3_PUBLIC_URL',
+    label: 'S3 公开 URL',
+    group: 'registry',
+    input: 'text',
+    scope: '即时生效',
+    description: '公开索引中 logo / 新产物 download_url 使用的外部访问地址。',
+  },
+  {
     key: 'S3_PLUGINS_PREFIX',
     label: '插件对象前缀',
     group: 'registry',
     input: 'text',
-    scope: '需要重启 API',
+    scope: '新产物生效',
     description: '新上传插件包在 S3 中的对象路径前缀。',
   },
   {
@@ -129,7 +139,7 @@ const editableItems: ConfigItem[] = [
     label: '未知作者占位',
     group: 'registry',
     input: 'text',
-    scope: '需要重启 API',
+    scope: '新产物生效',
     description: '构造 S3 key 时作者为空的占位值。',
   },
   {
@@ -137,7 +147,7 @@ const editableItems: ConfigItem[] = [
     label: '最大上传大小',
     group: 'limits',
     input: 'number',
-    scope: '需要重启 API',
+    scope: '即时生效',
     description: '手动上传 ZIP 的最大字节数。',
   },
   {
@@ -145,7 +155,7 @@ const editableItems: ConfigItem[] = [
     label: '最大解压大小',
     group: 'limits',
     input: 'number',
-    scope: '需要重启 API',
+    scope: '即时生效',
     description: 'ZIP 解压后的总大小上限。',
   },
   {
@@ -153,7 +163,7 @@ const editableItems: ConfigItem[] = [
     label: '最大文件数',
     group: 'limits',
     input: 'number',
-    scope: '需要重启 API',
+    scope: '即时生效',
     description: 'ZIP 内文件数量上限。',
   },
   {
@@ -161,7 +171,7 @@ const editableItems: ConfigItem[] = [
     label: '单文件大小上限',
     group: 'limits',
     input: 'number',
-    scope: '需要重启 API',
+    scope: '即时生效',
     description: 'ZIP 内单个文件大小上限。',
   },
   {
@@ -169,7 +179,7 @@ const editableItems: ConfigItem[] = [
     label: '构建产物大小上限',
     group: 'limits',
     input: 'number',
-    scope: '需要重启 worker',
+    scope: '新任务生效',
     description: '从 Git repo 打包出的 release zip 大小上限。',
   },
   {
@@ -177,7 +187,7 @@ const editableItems: ConfigItem[] = [
     label: '允许的 Git Host',
     group: 'git',
     input: 'text',
-    scope: '需要重启 API',
+    scope: '即时生效',
     description: '逗号分隔，例如 github.com,git.example.com。',
   },
   {
@@ -185,7 +195,7 @@ const editableItems: ConfigItem[] = [
     label: 'Clone 超时',
     group: 'git',
     input: 'number',
-    scope: '需要重启 API',
+    scope: '即时生效',
     description: 'Git clone 超时时间，单位秒。',
   },
   {
@@ -193,7 +203,7 @@ const editableItems: ConfigItem[] = [
     label: '扫描未配置时放行',
     group: 'scan',
     input: 'boolean',
-    scope: '需要重启 worker',
+    scope: '扫描时生效',
     description: '真实扫描 API 未配置时是否允许扫描占位通过。',
   },
   {
@@ -201,7 +211,7 @@ const editableItems: ConfigItem[] = [
     label: '扫描未配置提示',
     group: 'scan',
     input: 'text',
-    scope: '需要重启 worker',
+    scope: '扫描时生效',
     description: '扫描服务未配置时写入的提示文本。',
   },
   {
@@ -209,7 +219,7 @@ const editableItems: ConfigItem[] = [
     label: '启用 LLM Agent',
     group: 'scan',
     input: 'boolean',
-    scope: '需要重启 worker',
+    scope: '扫描时生效',
     description: '后续接入 LLM 扫描时使用。',
   },
   {
@@ -217,7 +227,7 @@ const editableItems: ConfigItem[] = [
     label: '任务最大尝试次数',
     group: 'worker',
     input: 'number',
-    scope: '需要重启 worker',
+    scope: '新任务生效',
     description: '构建/扫描任务失败后的最大尝试次数。',
   },
   {
@@ -225,7 +235,7 @@ const editableItems: ConfigItem[] = [
     label: '任务重试延迟',
     group: 'worker',
     input: 'number',
-    scope: '需要重启 worker',
+    scope: '新任务生效',
     description: '任务失败后再次入队前等待的秒数。',
   },
   {
@@ -233,7 +243,7 @@ const editableItems: ConfigItem[] = [
     label: 'Webhook 自动版本',
     group: 'webhook',
     input: 'text',
-    scope: '需要重启 API',
+    scope: '即时生效',
     description: 'Push webhook 无法获知版本时使用的占位版本。',
   },
   {
@@ -241,7 +251,7 @@ const editableItems: ConfigItem[] = [
     label: 'GitHub Webhook Secret',
     group: 'webhook',
     input: 'text',
-    scope: '需要重启 API',
+    scope: '即时生效',
     description: '敏感值，只允许写入，不回显明文。',
     sensitive: true,
   },
@@ -250,7 +260,7 @@ const editableItems: ConfigItem[] = [
     label: 'VirusTotal API Key',
     group: 'scan',
     input: 'text',
-    scope: '需要重启 worker',
+    scope: '扫描时生效',
     description: '敏感值，只允许写入，不回显明文。',
     sensitive: true,
   },
@@ -259,20 +269,15 @@ const editableItems: ConfigItem[] = [
     label: 'LLM Agent API Key',
     group: 'scan',
     input: 'text',
-    scope: '需要重启 worker',
+    scope: '扫描时生效',
     description: '敏感值，只允许写入，不回显明文。',
     sensitive: true,
   },
 ]
 
-const readonlyRows: ReadonlyRow[] = [
-  { key: 'DATABASE_URL', reason: '数据库连接属于部署配置，运行中修改风险高。' },
-  { key: 'REDIS_URL', reason: 'Redis 连接影响缓存和任务队列，交给部署环境管理。' },
-  { key: 'S3_ENDPOINT / S3_ACCESS_KEY / S3_SECRET_KEY', reason: '对象存储连接和密钥不应在后台明文读取。' },
-  { key: 'JWT_SECRET / JWT_ALGORITHM', reason: '认证签名配置修改会影响所有 token。' },
-  { key: 'APP_HOST / APP_PORT / APP_RELOAD', reason: '进程监听配置只在启动时生效。' },
-  { key: 'LOG_LEVEL', reason: '日志策略先由进程环境控制。' },
-]
+const readonlyRows = computed<ReadonlyRow[]>(() =>
+  Object.entries(query.data.value?.deployment_values || {}).map(([key, value]) => ({ key, value })),
+)
 
 const editor = reactive<{
   show: boolean
@@ -300,10 +305,14 @@ const editorBooleanValue = computed({
 
 const rows = computed<ConfigRow[]>(() => {
   const values = query.data.value?.values || {}
+  const effectiveValues = query.data.value?.effective_values || {}
+  const sensitiveStatus = query.data.value?.sensitive_status || {}
   return editableItems.map((item) => ({
     ...item,
     value: values[item.key] || '',
+    effectiveValue: effectiveValues[item.key] || '',
     overridden: Object.prototype.hasOwnProperty.call(values, item.key),
+    sensitiveSet: Boolean(sensitiveStatus[item.key]),
   }))
 })
 
@@ -321,17 +330,29 @@ const columns: DataTableColumns<ConfigRow> = [
     },
   },
   {
-    title: '当前覆盖值',
+    title: '当前生效值',
     key: 'value',
     render(row) {
       if (row.sensitive) {
-        return h(NTag, { size: 'small', round: true }, { default: () => (row.overridden ? '已设置' : '未设置') })
+        return h(NTag, { size: 'small', round: true }, { default: () => (row.sensitiveSet ? '已设置' : '未设置') })
       }
       return h(NInput, {
-        value: row.value || '使用环境默认',
+        value: row.effectiveValue || '-',
         readonly: true,
         type: row.input === 'textarea' ? 'textarea' : 'text',
       })
+    },
+  },
+  {
+    title: '覆盖状态',
+    key: 'overridden',
+    width: 100,
+    render(row) {
+      return h(
+        NTag,
+        { type: row.overridden ? 'info' : 'default', size: 'small', round: true },
+        { default: () => (row.overridden ? '已覆盖' : '默认') },
+      )
     },
   },
   {
@@ -339,8 +360,7 @@ const columns: DataTableColumns<ConfigRow> = [
     key: 'scope',
     width: 130,
     render(row) {
-      const type = row.scope === '即时生效' ? 'success' : row.scope.includes('worker') ? 'warning' : 'info'
-      return h(NTag, { type, size: 'small', round: true }, { default: () => row.scope })
+      return h(NTag, { type: 'success', size: 'small', round: true }, { default: () => row.scope })
     },
   },
   { title: '说明', key: 'description' },
@@ -357,12 +377,12 @@ const columns: DataTableColumns<ConfigRow> = [
 
 const readonlyColumns: DataTableColumns<ReadonlyRow> = [
   { title: '配置项', key: 'key', width: 320 },
-  { title: '原因', key: 'reason' },
+  { title: '当前值', key: 'value' },
 ]
 
 function openEditor(row: ConfigRow) {
   editor.item = row
-  editor.value = row.sensitive ? '' : row.value
+  editor.value = row.sensitive ? '' : row.effectiveValue
   editor.show = true
 }
 

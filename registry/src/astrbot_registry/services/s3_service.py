@@ -72,10 +72,32 @@ def build_public_url(s3_key: str) -> str:
     return f"{settings.s3_public_url.rstrip('/')}/{s3_key.lstrip('/')}"
 
 
+def build_public_url_with_base(s3_key: str, public_url: str) -> str:
+    """Return the public URL for an S3 object key using a runtime base URL."""
+    return f"{public_url.rstrip('/')}/{s3_key.lstrip('/')}"
+
+
 def build_s3_key(plugin, version: str, source_type: str, commit_sha: str | None = None) -> str:
     """Build the S3 object key for a plugin zip package."""
     short = commit_sha[:7] if commit_sha else source_type
     filename = f"{plugin.plugin_key}-{version}-{short}.zip"
     author = plugin.author or settings.s3_unknown_author
     prefix = settings.s3_plugins_prefix.strip("/")
+    return f"{prefix}/{author}/{plugin.plugin_key}/{version}/{filename}"
+
+
+def build_s3_key_with_layout(
+    plugin,
+    version: str,
+    source_type: str,
+    commit_sha: str | None = None,
+    *,
+    plugins_prefix: str,
+    unknown_author: str,
+) -> str:
+    """Build the S3 object key using runtime layout settings."""
+    short = commit_sha[:7] if commit_sha else source_type
+    filename = f"{plugin.plugin_key}-{version}-{short}.zip"
+    author = plugin.author or unknown_author
+    prefix = plugins_prefix.strip("/")
     return f"{prefix}/{author}/{plugin.plugin_key}/{version}/{filename}"

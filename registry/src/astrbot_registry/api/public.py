@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..api.deps import get_db
-from ..config import settings
 from ..models import Plugin
 from ..services.plugin_service import get_latest_version, get_plugin_by_key
 from ..services.registry_service import (
@@ -16,6 +15,7 @@ from ..services.registry_service import (
     get_registry_md5,
     get_stats,
 )
+from ..services.runtime_config import runtime_public_cache_max_age
 from ..services.s3_service import build_public_url
 from ..services.stats_service import increment_download_count, increment_install_count
 
@@ -32,11 +32,12 @@ async def list_plugins(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     """Return the full plugin registry in AstrBot-compatible format."""
     registry = await generate_registry_json(db)
     md5 = hashlib.md5(canonical_registry_bytes(registry)).hexdigest()
+    max_age = await runtime_public_cache_max_age(db)
     return JSONResponse(
         content=registry,
         headers={
             "ETag": f'"{md5}"',
-            "Cache-Control": f"public, max-age={settings.public_cache_max_age}",
+            "Cache-Control": f"public, max-age={max_age}",
         },
     )
 

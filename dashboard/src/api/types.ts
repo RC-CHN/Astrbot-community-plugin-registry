@@ -104,6 +104,10 @@ export type AdminStats = {
 
 export type SystemConfigResponse = {
   values: Record<string, string>
+  effective_values: Record<string, string>
+  sensitive_status: Record<string, boolean>
+  sensitive_keys: string[]
+  deployment_values: Record<string, string>
 }
 
 export type ApiError = {

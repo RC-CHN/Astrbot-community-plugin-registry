@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..cache import get_redis
-from ..config import settings
 from ..models import Plugin, PluginVersion, PluginVersionStat
 from ..services.plugin_service import scan_passed
+from ..services.runtime_config import runtime_redis_cache_ttl, runtime_s3_public_url
 
 CACHE_KEY = "registry_json"
 MD5_KEY = "registry_md5"
@@ -26,15 +26,16 @@ async def generate_registry_json(db: AsyncSession) -> dict[str, Any]:
             return json.loads(cached if isinstance(cached, str) else cached.decode())
 
     plugins = await _fetch_active_plugins(db)
+    s3_public_url = await runtime_s3_public_url(db)
     registry = {}
     for plugin in plugins:
         latest = _get_latest(plugin.versions)
         if latest is None:
             continue
-        registry[plugin.plugin_key] = _format_entry(plugin, latest)
+        registry[plugin.plugin_key] = _format_entry(plugin, latest, s3_public_url=s3_public_url)
 
     if client:
-        await client.set(CACHE_KEY, canonical_registry_json(registry), ex=settings.redis_cache_ttl)
+        await client.set(CACHE_KEY, canonical_registry_json(registry), ex=await runtime_redis_cache_ttl(db))
 
     return registry
 
@@ -51,7 +52,7 @@ async def get_registry_md5(db: AsyncSession) -> str:
     md5 = hashlib.md5(canonical_registry_bytes(registry)).hexdigest()
 
     if redis:
-        await redis.set(MD5_KEY, md5, ex=settings.redis_cache_ttl)
+        await redis.set(MD5_KEY, md5, ex=await runtime_redis_cache_ttl(db))
 
     return md5
 
@@ -109,7 +110,7 @@ def _get_latest(versions: list[PluginVersion]) -> PluginVersion | None:
     return None
 
 
-def _format_entry(plugin: Plugin, version: PluginVersion) -> dict[str, Any]:
+def _format_entry(plugin: Plugin, version: PluginVersion, s3_public_url: str | None = None) -> dict[str, Any]:
     scan = version.scan
     if scan:
         sec_scan = {
@@ -132,7 +133,7 @@ def _format_entry(plugin: Plugin, version: PluginVersion) -> dict[str, Any]:
         "stars": plugin.stars,
         "version": version.version,
         "updated_at": version.created_at.isoformat() if version.created_at else "",
-        "logo": _logo_url(plugin.logo_s3_key),
+        "logo": _logo_url(plugin.logo_s3_key, s3_public_url=s3_public_url),
         "commit_sha": version.commit_sha,
         "download_url": version.download_url or "",
         "sec_scan": sec_scan,
@@ -143,10 +144,13 @@ def _format_entry(plugin: Plugin, version: PluginVersion) -> dict[str, Any]:
     }
 
 
-def _logo_url(logo_s3_key: str | None) -> str:
+def _logo_url(logo_s3_key: str | None, s3_public_url: str | None = None) -> str:
     if not logo_s3_key:
         return ""
-    return f"{settings.s3_public_url.rstrip('/')}/{logo_s3_key.lstrip('/')}"
+    from ..config import settings
+
+    public_url = s3_public_url or settings.s3_public_url
+    return f"{public_url.rstrip('/')}/{logo_s3_key.lstrip('/')}"
 
 
 async def _fetch_active_plugins(db: AsyncSession) -> list[Plugin]:

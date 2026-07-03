@@ -22,10 +22,11 @@ _GITHUB_URL_RE = re.compile(
 )
 
 
-def parse_github_url(url: str) -> tuple[str, str]:
+def parse_github_url(url: str, allowed_hosts: list[str] | None = None) -> tuple[str, str]:
     """Return (owner, repo) from a GitHub HTTPS URL."""
     host = (urlparse(url).hostname or "").lower()
-    if host not in settings.git_allowed_hosts:
+    allowed_hosts = allowed_hosts or settings.git_allowed_hosts
+    if host not in allowed_hosts:
         raise ValueError(f"Git host is not allowed: {host}")
     match = _GITHUB_URL_RE.match(url)
     if not match:
@@ -42,6 +43,7 @@ def clone_repo(
     dest: Path,
     ref: str | None = None,
     timeout: int | None = None,
+    allowed_hosts: list[str] | None = None,
 ) -> None:
     """Clone a git repository into ``dest``.
 
@@ -51,7 +53,7 @@ def clone_repo(
     dest = Path(dest)
     if dest.exists():
         shutil.rmtree(dest)
-    parse_github_url(repo_url)
+    parse_github_url(repo_url, allowed_hosts=allowed_hosts)
 
     try:
         if ref and _is_sha(ref):

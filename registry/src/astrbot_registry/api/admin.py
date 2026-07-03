@@ -20,7 +20,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..api.deps import get_current_admin, get_current_reviewer, get_db
-from ..config import settings
 from ..database import async_session
 from ..models import Plugin, User, WebhookEvent
 from ..schemas.admin import (
@@ -45,7 +44,7 @@ from ..schemas.admin import (
 )
 from ..services.auth_service import authenticate_user, create_access_token, get_password_hash
 from ..services.build_service import build_from_repo
-from ..services.config_service import list_config, update_config
+from ..services.config_service import list_config_response, update_config
 from ..services.plugin_service import (
     create_plugin,
     create_version_from_upload,
@@ -60,6 +59,13 @@ from ..services.plugin_service import (
     update_plugin,
 )
 from ..services.registry_service import refresh_cache
+from ..services.runtime_config import (
+    runtime_git_allowed_hosts,
+    runtime_git_clone_timeout,
+    runtime_upload_limits,
+    runtime_webhook_auto_version,
+    runtime_webhook_secret,
+)
 from ..services.scan_service import scan_version
 from ..services.task_queue import enqueue_task
 from ..utils.git_utils import GitError, clone_repo, get_metadata_path, temp_repo_dir
@@ -135,8 +141,9 @@ async def _enqueue_or_fallback(
     background_tasks: BackgroundTasks,
     task_type: str,
     payload: dict,
+    db: AsyncSession,
 ) -> None:
-    queued = await enqueue_task(task_type, payload)
+    queued = await enqueue_task(task_type, payload, db=db)
     if queued:
         return
     if task_type == "build":
@@ -154,13 +161,15 @@ async def _enqueue_or_fallback(
 async def _process_uploaded_zip(
     file: UploadFile,
     workdir: Path,
+    db: AsyncSession,
 ) -> tuple:
+    limits = await runtime_upload_limits(db)
     zip_path = workdir / (file.filename or "upload.zip")
     total = 0
     with open(zip_path, "wb") as f:
         while chunk := await file.read(1024 * 1024):
             total += len(chunk)
-            if total > settings.max_upload_bytes:
+            if total > limits["max_upload_bytes"]:
                 raise HTTPException(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     detail="Uploaded zip is too large",
@@ -170,9 +179,9 @@ async def _process_uploaded_zip(
     try:
         inspect_zip(
             zip_path,
-            max_total_uncompressed_bytes=settings.max_unzip_bytes,
-            max_file_count=settings.max_zip_entries,
-            max_single_file_bytes=settings.max_single_file_bytes,
+            max_total_uncompressed_bytes=limits["max_unzip_bytes"],
+            max_file_count=limits["max_zip_entries"],
+            max_single_file_bytes=limits["max_single_file_bytes"],
         )
     except ZipValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -268,8 +277,16 @@ async def submit_plugin(
     current_user: User = Depends(get_current_reviewer),
 ) -> dict:
     try:
+        git_clone_timeout = await runtime_git_clone_timeout(db)
+        git_allowed_hosts = await runtime_git_allowed_hosts(db)
         with temp_repo_dir() as repo_dir:
-            clone_repo(request.repo_url, repo_dir, ref=request.ref, timeout=settings.git_clone_timeout)
+            clone_repo(
+                request.repo_url,
+                repo_dir,
+                ref=request.ref,
+                timeout=git_clone_timeout,
+                allowed_hosts=git_allowed_hosts,
+            )
             metadata = parse_metadata_yaml(get_metadata_path(repo_dir))
     except (GitError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -291,6 +308,7 @@ async def submit_plugin(
             "ref": request.ref,
             "user_id": str(current_user.id),
         },
+        db,
     )
     return {"plugin_id": str(plugin.id), "version": version, "status": "queued"}
 
@@ -304,7 +322,7 @@ async def upload_plugin(
 ) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
-        metadata, zip_path = await _process_uploaded_zip(file, workdir)
+        metadata, zip_path = await _process_uploaded_zip(file, workdir, db)
         plugin = await create_plugin(
             db,
             metadata,
@@ -323,6 +341,7 @@ async def upload_plugin(
             background_tasks,
             "scan",
             {"version_id": str(version.id)},
+            db,
         )
     return {"plugin_id": str(plugin.id), "version_id": str(version.id)}
 
@@ -414,6 +433,7 @@ async def create_version_from_repo(
             "ref": request.ref,
             "user_id": str(current_user.id),
         },
+        db,
     )
     return {"plugin_id": plugin_id, "version": request.version, "status": "queued"}
 
@@ -434,7 +454,7 @@ async def upload_version(
 
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
-        metadata, zip_path = await _process_uploaded_zip(file, workdir)
+        metadata, zip_path = await _process_uploaded_zip(file, workdir, db)
         version_str = version or metadata.version
         pv = await create_version_from_upload(
             db,
@@ -445,7 +465,7 @@ async def upload_version(
             changelog,
             created_by=current_user.id,
         )
-        await _enqueue_or_fallback(background_tasks, "scan", {"version_id": str(pv.id)})
+        await _enqueue_or_fallback(background_tasks, "scan", {"version_id": str(pv.id)}, db)
     return {"version_id": str(pv.id)}
 
 
@@ -496,6 +516,7 @@ async def trigger_build(
             "ref": request.ref,
             "user_id": str(current_user.id),
         },
+        db,
     )
     return {"status": "queued"}
 
@@ -508,7 +529,7 @@ async def trigger_scan(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_reviewer),
 ) -> dict:
-    await _enqueue_or_fallback(background_tasks, "scan", {"version_id": version_id})
+    await _enqueue_or_fallback(background_tasks, "scan", {"version_id": version_id}, db)
     return {"status": "queued"}
 
 
@@ -540,7 +561,7 @@ async def get_config_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin),
 ) -> dict:
-    return {"values": await list_config(db)}
+    return await list_config_response(db)
 
 
 @admin_router.put("/config")
@@ -567,10 +588,14 @@ async def github_webhook(
     background_tasks: BackgroundTasks,
 ) -> dict:
     body = await request.body()
-    if settings.github_webhook_secret:
+    async with async_session() as db:
+        webhook_secret = await runtime_webhook_secret(db)
+        webhook_auto_version = await runtime_webhook_auto_version(db)
+
+    if webhook_secret:
         signature = request.headers.get("X-Hub-Signature-256", "")
         expected = "sha256=" + hmac.new(
-            settings.github_webhook_secret.encode("utf-8"),
+            webhook_secret.encode("utf-8"),
             body,
             hashlib.sha256,
         ).hexdigest()
@@ -626,14 +651,16 @@ async def github_webhook(
         await db.commit()
 
     # We do not know the version from a push event; the build task will read metadata.yaml.
-    await _enqueue_or_fallback(
-        background_tasks,
-        "build",
-        {
-            "plugin_id": str(plugin.id),
-            "version": settings.webhook_auto_version,
-            "ref": ref,
-            "user_id": "",
-        },
-    )
+    async with async_session() as db:
+        await _enqueue_or_fallback(
+            background_tasks,
+            "build",
+            {
+                "plugin_id": str(plugin.id),
+                "version": webhook_auto_version,
+                "ref": ref,
+                "user_id": "",
+            },
+            db,
+        )
     return {"status": "queued"}
