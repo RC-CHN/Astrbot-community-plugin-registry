@@ -17,6 +17,17 @@ def test_config_response_includes_virustotal_runtime_defaults() -> None:
     assert response["effective_values"]["VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES"] == "33554432"
 
 
+def test_config_response_includes_llm_runtime_defaults() -> None:
+    response = build_config_response({})
+
+    assert response["effective_values"]["LLM_AGENT_ENABLED"] == "False"
+    assert response["effective_values"]["LLM_AGENT_BASE_URL"] == ""
+    assert response["effective_values"]["LLM_AGENT_MODEL"] == ""
+    assert response["effective_values"]["LLM_AGENT_MAX_CONTEXT_CHARS"] == "200000"
+    assert "LLM_AGENT_API_KEY" not in response["effective_values"]
+    assert "LLM_AGENT_API_KEY" in response["sensitive_keys"]
+
+
 def test_config_response_redacts_sensitive_values() -> None:
     response = build_config_response({"GITHUB_WEBHOOK_SECRET": "secret"})
 

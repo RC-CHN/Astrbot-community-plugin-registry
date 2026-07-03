@@ -62,7 +62,9 @@ class Settings(BaseSettings):
     virustotal_max_direct_upload_bytes: int = 32 * 1024 * 1024
     llm_agent_enabled: bool = False
     llm_agent_base_url: str = ""
+    llm_agent_model: str = ""
     llm_agent_api_key: str = ""
+    llm_agent_max_context_chars: int = 200000
     scan_pass_when_unconfigured: bool = True
     scan_unconfigured_message: str = "Scan not configured"
 

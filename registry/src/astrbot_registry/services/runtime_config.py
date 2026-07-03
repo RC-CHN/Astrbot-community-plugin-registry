@@ -143,6 +143,21 @@ async def runtime_virustotal_config(db: AsyncSession) -> dict[str, Any]:
     }
 
 
+async def runtime_llm_agent_config(db: AsyncSession) -> dict[str, Any]:
+    return {
+        "enabled": await get_runtime_value(db, "LLM_AGENT_ENABLED", settings.llm_agent_enabled, bool),
+        "base_url": await get_runtime_value(db, "LLM_AGENT_BASE_URL", settings.llm_agent_base_url, str),
+        "model": await get_runtime_value(db, "LLM_AGENT_MODEL", settings.llm_agent_model, str),
+        "api_key": await get_runtime_value(db, "LLM_AGENT_API_KEY", settings.llm_agent_api_key, str),
+        "max_context_chars": await get_runtime_value(
+            db,
+            "LLM_AGENT_MAX_CONTEXT_CHARS",
+            settings.llm_agent_max_context_chars,
+            int,
+        ),
+    }
+
+
 async def runtime_task_max_attempts(db: AsyncSession | None = None) -> int:
     if db is None:
         return settings.task_max_attempts

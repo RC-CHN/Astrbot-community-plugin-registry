@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 from typing import Sequence
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -162,6 +162,12 @@ async def delete_plugin(db: AsyncSession, plugin_id: uuid.UUID) -> Plugin:
     plugin = await get_plugin(db, plugin_id)
     if plugin is None:
         raise NotFoundError("Plugin not found")
+    await db.execute(
+        update(PluginVersion)
+        .where(PluginVersion.plugin_id == plugin_id)
+        .values(is_latest=False)
+    )
+    await db.execute(delete(PluginVersion).where(PluginVersion.plugin_id == plugin_id))
     await db.delete(plugin)
     await db.commit()
     await _refresh_registry_cache(db)

@@ -14,6 +14,7 @@ from .database import async_session
 from .services.build_service import build_from_repo
 from .services.plugin_service import get_plugin
 from .services.scan_service import scan_version
+from .services.submit_service import submit_repo
 from .services.task_queue import QUEUE_KEY, requeue_task
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,14 @@ async def handle_task(task: dict) -> None:
             )
         elif task_type == "scan":
             await scan_version(db, uuid.UUID(payload["version_id"]), providers=payload.get("providers"))
+        elif task_type == "submit":
+            await submit_repo(
+                db,
+                repo_url=payload["repo_url"],
+                version=payload.get("version"),
+                ref=payload.get("ref"),
+                user_id=payload.get("user_id"),
+            )
         else:
             logger.warning("Unknown task type: %s", task_type)
 

@@ -46,14 +46,11 @@ from ..services.auth_service import authenticate_user, create_access_token, get_
 from ..services.build_service import build_from_repo
 from ..services.config_service import list_config_response, update_config
 from ..services.plugin_service import (
-    assert_metadata_matches_plugin,
     create_plugin,
     create_version_from_upload,
     delete_plugin,
     get_plugin,
-    get_plugin_by_key,
     get_plugin_with_details,
-    get_version_by_plugin_and_number,
     list_plugins,
     list_versions,
     set_latest_version,
@@ -64,16 +61,15 @@ from ..services.plugin_service import (
 from ..services.registry_service import refresh_cache
 from ..services.runtime_config import (
     runtime_git_allowed_hosts,
-    runtime_git_clone_timeout,
     runtime_upload_limits,
     runtime_webhook_auto_version,
     runtime_webhook_secret,
 )
 from ..services.scan_service import mark_scan_pending, mark_scan_skipped, scan_version
+from ..services.submit_service import submit_repo
 from ..services.task_queue import enqueue_task
-from ..services.errors import ConflictError
-from ..utils.git_utils import GitError, clone_repo, get_metadata_path, temp_repo_dir
-from ..utils.metadata_parser import infer_plugin_key, parse_metadata_yaml
+from ..utils.git_utils import parse_github_url
+from ..utils.metadata_parser import parse_metadata_yaml
 from ..utils.zip_utils import (
     ZipValidationError,
     find_metadata_yaml,
@@ -150,6 +146,11 @@ async def _scan_version_task(version_id: str, providers: list[str] | None = None
         await scan_version(db, uuid.UUID(version_id), providers=providers)
 
 
+async def _submit_repo_task(repo_url: str, version: str | None, ref: str | None, user_id: str) -> None:
+    async with async_session() as db:
+        await submit_repo(db, repo_url=repo_url, version=version, ref=ref, user_id=user_id)
+
+
 async def _enqueue_or_fallback(
     background_tasks: BackgroundTasks,
     task_type: str,
@@ -169,6 +170,14 @@ async def _enqueue_or_fallback(
         )
     elif task_type == "scan":
         background_tasks.add_task(_scan_version_task, payload["version_id"], payload.get("providers"))
+    elif task_type == "submit":
+        background_tasks.add_task(
+            _submit_repo_task,
+            payload["repo_url"],
+            payload.get("version"),
+            payload.get("ref"),
+            payload.get("user_id", ""),
+        )
 
 
 async def _process_uploaded_zip(
@@ -290,46 +299,23 @@ async def submit_plugin(
     current_user: User = Depends(get_current_reviewer),
 ) -> dict:
     try:
-        git_clone_timeout = await runtime_git_clone_timeout(db)
         git_allowed_hosts = await runtime_git_allowed_hosts(db)
-        with temp_repo_dir() as repo_dir:
-            clone_repo(
-                request.repo_url,
-                repo_dir,
-                ref=request.ref,
-                timeout=git_clone_timeout,
-                allowed_hosts=git_allowed_hosts,
-            )
-            metadata = parse_metadata_yaml(get_metadata_path(repo_dir))
-    except (GitError, ValueError) as exc:
+        parse_github_url(request.repo_url, allowed_hosts=git_allowed_hosts)
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    plugin = await get_plugin_by_key(db, infer_plugin_key(metadata.name))
-    if plugin is None:
-        plugin = await create_plugin(
-            db,
-            metadata,
-            request.repo_url,
-            created_by=current_user.id,
-        )
-    else:
-        assert_metadata_matches_plugin(metadata, plugin)
-    version = request.version or metadata.version
-    if await get_version_by_plugin_and_number(db, plugin.id, version):
-        raise ConflictError(f"Version {version} already exists for plugin {plugin.plugin_key}")
 
     await _enqueue_or_fallback(
         background_tasks,
-        "build",
+        "submit",
         {
-            "plugin_id": str(plugin.id),
-            "version": version,
+            "repo_url": request.repo_url,
+            "version": request.version,
             "ref": request.ref,
             "user_id": str(current_user.id),
         },
         db,
     )
-    return {"plugin_id": str(plugin.id), "version": version, "status": "queued"}
+    return {"plugin_id": None, "version": request.version, "status": "queued"}
 
 
 @admin_router.post("/plugins/upload", response_model=VersionSubmitResponse)

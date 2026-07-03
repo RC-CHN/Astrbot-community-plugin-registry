@@ -63,8 +63,8 @@ class StatusResponse(BaseModel):
 
 
 class PluginSubmitResponse(BaseModel):
-    plugin_id: str
-    version: str
+    plugin_id: str | None = None
+    version: str | None = None
     status: str
 
 
