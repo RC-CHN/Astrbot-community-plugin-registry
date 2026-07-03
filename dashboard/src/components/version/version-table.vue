@@ -9,7 +9,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h } from 'vue'
+import { computed, h, type VNodeChild } from 'vue'
 import { NButton, NButtonGroup, NTag, NTooltip, type DataTableColumns } from 'naive-ui'
 
 import type { PluginDetail, VersionStatus, VersionSummary } from '@/api/types'
@@ -29,6 +29,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   setVersionStatus: [version: VersionSummary, status: VersionStatus]
   setLatest: [version: VersionSummary]
+  rescan: [version: VersionSummary]
+  runScanProvider: [version: VersionSummary, provider: 'virustotal' | 'llm_agent']
+  skipScanProvider: [version: VersionSummary, provider: 'virustotal' | 'llm_agent']
 }>()
 
 const rowKey = (row: VersionSummary) => row.id
@@ -55,7 +58,10 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
     title: '构建',
     key: 'build_status',
     width: 110,
-    render: (row) => h(StatusTag, { kind: 'build', value: row.build_status }),
+    render(row) {
+      const node = h(StatusTag, { kind: 'build', value: row.build_status })
+      return row.build_log ? withTooltip(node, row.build_log) : node
+    },
   },
   {
     title: '版本状态',
@@ -66,10 +72,13 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
   {
     title: '扫描',
     key: 'scan',
-    width: 100,
+    width: 110,
     render(row) {
       const meta = getScanAggregateMeta(row.scan)
-      return h(NTag, { type: meta.type, size: 'small', round: true }, { default: () => meta.label })
+      return withTooltip(
+        h(NTag, { type: meta.type, size: 'small', round: true }, { default: () => meta.label }),
+        scanTooltip(row),
+      )
     },
   },
   {
@@ -88,10 +97,55 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
     title: '操作',
     key: 'actions',
     align: 'right',
-    width: 210,
+    width: 360,
     render(row) {
       const activeCheck = canActivateVersion(row)
       const latestBlockers = getVersionBlockers(props.plugin, row)
+      const scanButton = h(
+        NButton,
+        {
+          size: 'small',
+          disabled: !row.download_url || row.build_status === 'scanning',
+          onClick: () => emit('rescan', row),
+        },
+        { default: () => '全量扫描' },
+      )
+      const vtScanButton = h(
+        NButton,
+        {
+          size: 'small',
+          disabled: !row.download_url || row.build_status === 'scanning',
+          onClick: () => emit('runScanProvider', row, 'virustotal'),
+        },
+        { default: () => 'VT扫描' },
+      )
+      const vtSkipButton = h(
+        NButton,
+        {
+          size: 'small',
+          secondary: true,
+          onClick: () => emit('skipScanProvider', row, 'virustotal'),
+        },
+        { default: () => 'VT跳过' },
+      )
+      const llmScanButton = h(
+        NButton,
+        {
+          size: 'small',
+          disabled: !row.download_url || row.build_status === 'scanning',
+          onClick: () => emit('runScanProvider', row, 'llm_agent'),
+        },
+        { default: () => 'LLM扫描' },
+      )
+      const llmSkipButton = h(
+        NButton,
+        {
+          size: 'small',
+          secondary: true,
+          onClick: () => emit('skipScanProvider', row, 'llm_agent'),
+        },
+        { default: () => 'LLM跳过' },
+      )
       const activeButton = h(
         NButton,
         {
@@ -111,18 +165,63 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
         },
         { default: () => '设为 latest' },
       )
-      return h(NButtonGroup, null, {
-        default: () => [
-          activeCheck.ok ? activeButton : withTooltip(activeButton, activeCheck.reason),
-          latestBlockers.length ? withTooltip(latestButton, latestBlockers.join('；')) : latestButton,
-        ],
-      })
+      return h('div', { class: 'version-actions' }, [
+        h(NButtonGroup, null, {
+          default: () => [
+            activeCheck.ok ? activeButton : withTooltip(activeButton, activeCheck.reason),
+            latestBlockers.length ? withTooltip(latestButton, latestBlockers.join('；')) : latestButton,
+          ],
+        }),
+        h(NButtonGroup, null, {
+          default: () => [
+            !row.download_url ? withTooltip(scanButton, '没有可扫描的构建产物') : scanButton,
+            !row.download_url ? withTooltip(vtScanButton, '没有可扫描的构建产物') : vtScanButton,
+            vtSkipButton,
+            !row.download_url ? withTooltip(llmScanButton, '没有可扫描的构建产物') : llmScanButton,
+            llmSkipButton,
+          ],
+        }),
+      ])
     },
   },
 ])
 
-function withTooltip(node: ReturnType<typeof h>, text: string) {
-  return h(NTooltip, null, { trigger: () => node, default: () => text })
+function withTooltip(node: ReturnType<typeof h>, content: VNodeChild) {
+  return h(NTooltip, null, { trigger: () => node, default: () => content })
+}
+
+function scanTooltip(row: VersionSummary) {
+  if (!row.scan) return '尚未扫描'
+  const vt = row.scan.virustotal
+  const llm = row.scan.llm_agent
+  return h('div', { class: 'scan-tooltip' }, [
+    h('div', { class: 'scan-tooltip-row' }, [
+      h('strong', null, 'VirusTotal'),
+      h('span', null, `${modeLabel(vt.mode)} / ${passLabel(vt.pass)}`),
+      vt.msg ? h('span', { class: 'scan-tooltip-msg' }, vt.msg) : null,
+    ]),
+    h('div', { class: 'scan-tooltip-row' }, [
+      h('strong', null, 'LLM Agent'),
+      h('span', null, `${modeLabel(llm.mode)} / ${passLabel(llm.pass)}`),
+      llm.msg ? h('span', { class: 'scan-tooltip-msg' }, llm.msg) : null,
+    ]),
+  ])
+}
+
+function modeLabel(mode: string) {
+  const labels: Record<string, string> = {
+    pending: '等待中',
+    real: '真实扫描',
+    skipped: '已略过',
+    error: '扫描错误',
+  }
+  return labels[mode] || mode
+}
+
+function passLabel(value: boolean | null) {
+  if (value === true) return '通过'
+  if (value === false) return '未通过'
+  return '无结果'
 }
 </script>
 
@@ -135,5 +234,29 @@ function withTooltip(node: ReturnType<typeof h>, text: string) {
 
 .version-name {
   font-weight: 600;
+}
+
+.version-actions {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scan-tooltip {
+  display: grid;
+  gap: 8px;
+  max-width: 520px;
+  white-space: normal;
+}
+
+.scan-tooltip-row {
+  display: grid;
+  gap: 3px;
+}
+
+.scan-tooltip-msg {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 </style>

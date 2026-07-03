@@ -21,6 +21,10 @@ class Plugin(Base):
             "status IN ('pending', 'active', 'disabled', 'deleted')",
             name="ck_plugins_status",
         ),
+        CheckConstraint(
+            "review_status IN ('pending', 'approved', 'skipped', 'rejected')",
+            name="ck_plugins_review_status",
+        ),
         CheckConstraint("stars >= 0", name="ck_plugins_stars_nonnegative"),
     )
 
@@ -43,6 +47,12 @@ class Plugin(Base):
     support_platforms: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     astrbot_version: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(
+        String(50),
+        default="pending",
+        server_default=text("'pending'"),
+        nullable=False,
+    )
+    review_status: Mapped[str] = mapped_column(
         String(50),
         default="pending",
         server_default=text("'pending'"),

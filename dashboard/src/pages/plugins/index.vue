@@ -35,7 +35,7 @@
 <script setup lang="ts">
 import { computed, h, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NButton, type DataTableColumns } from 'naive-ui'
+import { NButton, NPopconfirm, type DataTableColumns } from 'naive-ui'
 
 import type { PluginListParams, PluginSummary, PluginStatus } from '@/api/types'
 import ApiErrorAlert from '@/components/common/api-error-alert.vue'
@@ -104,7 +104,7 @@ const columns: DataTableColumns<PluginSummary> = [
     title: '操作',
     key: 'actions',
     align: 'right',
-    width: 210,
+    width: 280,
     render(row) {
       return [
         h(NButton, { size: 'small', quaternary: true, onClick: () => router.push(`/plugins/${row.id}`) }, { default: () => '查看' }),
@@ -123,6 +123,13 @@ const columns: DataTableColumns<PluginSummary> = [
               },
               { default: () => '通过' },
             )
+          : null,
+        row.status !== 'deleted'
+          ? h(NPopconfirm, { positiveText: '确认删除', negativeText: '取消', onPositiveClick: () => mutations.deletePlugin.mutate({ pluginId: row.id }) }, {
+              trigger: () =>
+                h(NButton, { size: 'small', type: 'error', secondary: true }, { default: () => '删除' }),
+              default: () => '删除后插件和版本会从公开索引移除，确认继续？',
+            })
           : null,
       ]
     },

@@ -26,13 +26,26 @@
       <template v-if="plugin">
         <div class="workbench-header">
           <plugin-title :plugin="plugin" />
-          <status-tag kind="plugin" :value="plugin.status" />
+          <n-space size="small">
+            <status-tag kind="plugin" :value="plugin.status" />
+            <n-tag size="small" round>{{ reviewStatusLabel(plugin.review_status) }}</n-tag>
+          </n-space>
         </div>
         <dl class="meta">
           <dt>作者</dt>
           <dd>{{ plugin.author }}</dd>
           <dt>Repo</dt>
-          <dd><a v-if="plugin.repo_url" :href="plugin.repo_url" target="_blank">{{ plugin.repo_url }}</a></dd>
+          <dd>
+            <a
+              v-if="plugin.repo_url"
+              class="text-link"
+              :href="plugin.repo_url"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {{ plugin.repo_url }}
+            </a>
+          </dd>
           <dt>描述</dt>
           <dd>{{ plugin.description }}</dd>
         </dl>
@@ -44,6 +57,9 @@
           :versions="plugin.versions"
           @set-version-status="setVersionStatus"
           @set-latest="setLatest"
+          @rescan="rescanVersion"
+          @run-scan-provider="runScanProvider"
+          @skip-scan-provider="skipScanProvider"
         />
 
         <div class="action-bar">
@@ -65,6 +81,16 @@
             跳过人工审核会直接公开当前版本，请确认这个插件来源可信。
           </n-popconfirm>
           <n-button type="error" secondary @click="disablePlugin">禁用</n-button>
+          <n-popconfirm
+            positive-text="确认删除"
+            negative-text="取消"
+            @positive-click="deletePlugin"
+          >
+            <template #trigger>
+              <n-button type="error" secondary>删除</n-button>
+            </template>
+            删除后插件和版本会从公开索引移除，确认继续？
+          </n-popconfirm>
         </div>
       </template>
       <empty-state v-else description="请选择一个待审核插件" />
@@ -119,7 +145,11 @@ async function approvePluginOnly() {
 async function approveAndPublish() {
   if (!plugin.value || !candidate.value) return
   await runAction(async () => {
-    await mutations.updatePluginStatus.mutateAsync({ pluginId: plugin.value!.id, status: 'active' })
+    await mutations.updatePluginReviewStatus.mutateAsync({
+      pluginId: plugin.value!.id,
+      status: 'active',
+      reviewStatus: 'approved',
+    })
     await mutations.updateVersionStatus.mutateAsync({
       pluginId: plugin.value!.id,
       versionId: candidate.value!.id,
@@ -131,12 +161,32 @@ async function approveAndPublish() {
 }
 
 async function skipReviewAndPublish() {
-  await approveAndPublish()
+  if (!plugin.value || !candidate.value) return
+  await runAction(async () => {
+    await mutations.updatePluginReviewStatus.mutateAsync({
+      pluginId: plugin.value!.id,
+      status: 'active',
+      reviewStatus: 'skipped',
+    })
+    await mutations.updateVersionStatus.mutateAsync({
+      pluginId: plugin.value!.id,
+      versionId: candidate.value!.id,
+      status: 'active',
+    })
+    await mutations.setLatest.mutateAsync({ pluginId: plugin.value!.id, versionId: candidate.value!.id })
+    await mutations.refreshCache.mutateAsync()
+  })
 }
 
 async function disablePlugin() {
   if (!plugin.value) return
   await runAction(() => mutations.updatePluginStatus.mutateAsync({ pluginId: plugin.value!.id, status: 'disabled' }))
+}
+
+async function deletePlugin() {
+  if (!plugin.value) return
+  await runAction(() => mutations.deletePlugin.mutateAsync({ pluginId: plugin.value!.id }))
+  selectedId.value = ''
 }
 
 async function setVersionStatus(version: VersionSummary, status: VersionStatus) {
@@ -151,6 +201,25 @@ async function setLatest(version: VersionSummary) {
   await runAction(() => mutations.setLatest.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id }))
 }
 
+async function rescanVersion(version: VersionSummary) {
+  if (!plugin.value) return
+  await runAction(() => mutations.triggerScan.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id }))
+}
+
+async function runScanProvider(version: VersionSummary, provider: 'virustotal' | 'llm_agent') {
+  if (!plugin.value) return
+  await runAction(() =>
+    mutations.runScanProvider.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id, provider }),
+  )
+}
+
+async function skipScanProvider(version: VersionSummary, provider: 'virustotal' | 'llm_agent') {
+  if (!plugin.value) return
+  await runAction(() =>
+    mutations.skipScanProvider.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id, provider }),
+  )
+}
+
 async function runAction(action: () => Promise<unknown>) {
   actionError.value = null
   try {
@@ -161,6 +230,16 @@ async function runAction(action: () => Promise<unknown>) {
   } catch (err) {
     actionError.value = err
   }
+}
+
+function reviewStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: '人工审核待处理',
+    approved: '人工审核通过',
+    skipped: '人工审核跳过',
+    rejected: '人工审核拒绝',
+  }
+  return labels[status] || status
 }
 </script>
 

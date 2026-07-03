@@ -11,8 +11,18 @@
         <api-error-alert :error="error" />
         <n-form :model="repoForm" label-placement="top" class="submit-form">
           <n-form-item label="Repo URL">
-            <n-input v-model:value="repoForm.repo_url" placeholder="https://github.com/owner/repo" />
+            <n-input
+              v-model:value="repoForm.repo_url"
+              class="repo-url-input"
+              placeholder="https://github.com/owner/repo"
+              :input-props="{
+                autocomplete: 'off',
+                autocapitalize: 'off',
+                spellcheck: 'false',
+              }"
+            />
           </n-form-item>
+          <div v-if="repoForm.repo_url" class="repo-url-preview">{{ repoForm.repo_url }}</div>
           <n-grid :cols="2" :x-gap="12">
             <n-form-item-gi label="Ref">
               <n-input v-model:value="repoForm.ref" placeholder="branch / tag / commit" />
@@ -121,6 +131,25 @@ function reset() {
 <style scoped>
 .submit-form {
   margin-top: 8px;
+}
+
+.repo-url-input :deep(.n-input__input-el),
+.repo-url-preview {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.repo-url-input :deep(.n-input__input-el) {
+  line-height: 1.6;
+  padding-bottom: 2px;
+}
+
+.repo-url-preview {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: -12px 0 12px;
+  white-space: normal;
+  word-break: break-all;
 }
 
 .upload-text {

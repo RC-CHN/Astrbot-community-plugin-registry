@@ -4,6 +4,7 @@ import type {
   PluginListParams,
   PluginListResponse,
   PluginStatus,
+  ReviewStatus,
   SubmitPluginRequest,
   SubmitPluginResponse,
   VersionStatus,
@@ -50,6 +51,19 @@ export function updatePluginStatus(pluginId: string, status: PluginStatus) {
   })
 }
 
+export function updatePluginReviewStatus(pluginId: string, status: PluginStatus, reviewStatus: ReviewStatus) {
+  return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status, review_status: reviewStatus }),
+  })
+}
+
+export function deletePlugin(pluginId: string) {
+  return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function updateVersionStatus(pluginId: string, versionId: string, status: VersionStatus) {
   return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/versions/${versionId}/status`, {
     method: 'PUT',
@@ -61,6 +75,25 @@ export function setLatestVersion(pluginId: string, versionId: string) {
   return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/versions/${versionId}/latest`, {
     method: 'PUT',
     body: JSON.stringify({ is_latest: true }),
+  })
+}
+
+export function triggerVersionScan(pluginId: string, versionId: string) {
+  return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/scan`, {
+    method: 'POST',
+    query: { version_id: versionId },
+  })
+}
+
+export function runVersionScanProvider(pluginId: string, versionId: string, provider: 'virustotal' | 'llm_agent') {
+  return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/versions/${versionId}/scans/${provider}/run`, {
+    method: 'POST',
+  })
+}
+
+export function skipVersionScanProvider(pluginId: string, versionId: string, provider: 'virustotal' | 'llm_agent') {
+  return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/versions/${versionId}/scans/${provider}/skip`, {
+    method: 'POST',
   })
 }
 

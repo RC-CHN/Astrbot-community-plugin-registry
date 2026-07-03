@@ -123,7 +123,7 @@ async def build_from_repo(
                 file_size=zip_path.stat().st_size,
                 commit_sha=commit_sha,
             )
-            await scan_version(db, pv.id)
+            await scan_version(db, pv.id, local_path=zip_path)
     except Exception as exc:
         pv.build_status = "failed"
         pv.build_log = str(exc)

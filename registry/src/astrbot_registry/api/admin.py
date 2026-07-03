@@ -69,7 +69,7 @@ from ..services.runtime_config import (
     runtime_webhook_auto_version,
     runtime_webhook_secret,
 )
-from ..services.scan_service import scan_version
+from ..services.scan_service import mark_scan_pending, mark_scan_skipped, scan_version
 from ..services.task_queue import enqueue_task
 from ..services.errors import ConflictError
 from ..utils.git_utils import GitError, clone_repo, get_metadata_path, temp_repo_dir
@@ -100,8 +100,16 @@ def _version_summary(version) -> dict:
         "created_at": version.created_at,
         "updated_at": version.updated_at,
         "scan": {
-            "virustotal": {"pass": scan.virustotal_pass, "msg": scan.virustotal_msg},
-            "llm_agent": {"pass": scan.llm_agent_pass, "msg": scan.llm_agent_msg},
+            "virustotal": {
+                "pass": scan.virustotal_pass,
+                "msg": scan.virustotal_msg,
+                "mode": scan.virustotal_mode,
+            },
+            "llm_agent": {
+                "pass": scan.llm_agent_pass,
+                "msg": scan.llm_agent_msg,
+                "mode": scan.llm_agent_mode,
+            },
             "scanned_at": scan.scanned_at.isoformat() if scan.scanned_at else None,
         }
         if scan
@@ -116,6 +124,7 @@ def _plugin_summary(plugin) -> dict:
         "display_name": plugin.display_name,
         "author": plugin.author,
         "status": plugin.status,
+        "review_status": plugin.review_status,
         "category": plugin.category,
         "version_count": len(plugin.versions),
         "created_at": plugin.created_at,
@@ -136,9 +145,9 @@ async def _build_version_task(
         await build_from_repo(db, plugin, version, ref=ref, created_by=user_id)
 
 
-async def _scan_version_task(version_id: str) -> None:
+async def _scan_version_task(version_id: str, providers: list[str] | None = None) -> None:
     async with async_session() as db:
-        await scan_version(db, uuid.UUID(version_id))
+        await scan_version(db, uuid.UUID(version_id), providers=providers)
 
 
 async def _enqueue_or_fallback(
@@ -159,7 +168,7 @@ async def _enqueue_or_fallback(
             payload.get("user_id", ""),
         )
     elif task_type == "scan":
-        background_tasks.add_task(_scan_version_task, payload["version_id"])
+        background_tasks.add_task(_scan_version_task, payload["version_id"], payload.get("providers"))
 
 
 async def _process_uploaded_zip(
@@ -539,8 +548,45 @@ async def trigger_scan(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_reviewer),
 ) -> dict:
-    await _enqueue_or_fallback(background_tasks, "scan", {"version_id": version_id}, db)
+    providers = ["virustotal", "llm_agent"]
+    await mark_scan_pending(db, uuid.UUID(version_id), providers=providers)
+    await _enqueue_or_fallback(background_tasks, "scan", {"version_id": version_id, "providers": providers}, db)
     return {"status": "queued"}
+
+
+@admin_router.post("/plugins/{plugin_id}/versions/{version_id}/scans/{provider}/run", response_model=StatusResponse)
+async def trigger_scan_provider(
+    plugin_id: str,
+    version_id: str,
+    provider: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    providers = _scan_providers(provider)
+    await mark_scan_pending(db, uuid.UUID(version_id), providers=providers)
+    await _enqueue_or_fallback(background_tasks, "scan", {"version_id": version_id, "providers": providers}, db)
+    return {"status": "queued"}
+
+
+@admin_router.post("/plugins/{plugin_id}/versions/{version_id}/scans/{provider}/skip", response_model=StatusResponse)
+async def skip_scan_provider(
+    plugin_id: str,
+    version_id: str,
+    provider: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    await mark_scan_skipped(db, uuid.UUID(version_id), providers=_scan_providers(provider))
+    return {"status": "skipped"}
+
+
+def _scan_providers(provider: str) -> list[str]:
+    if provider == "all":
+        return ["virustotal", "llm_agent"]
+    if provider in {"virustotal", "llm_agent"}:
+        return [provider]
+    raise HTTPException(status_code=400, detail="Invalid scan provider")
 
 
 @admin_router.put("/plugins/{plugin_id}/status", response_model=StatusResponse)
@@ -550,7 +596,7 @@ async def update_plugin_status(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin),
 ) -> dict:
-    await set_plugin_status(db, uuid.UUID(plugin_id), request.status)
+    await set_plugin_status(db, uuid.UUID(plugin_id), request.status, review_status=request.review_status)
     return {"status": "updated"}
 
 

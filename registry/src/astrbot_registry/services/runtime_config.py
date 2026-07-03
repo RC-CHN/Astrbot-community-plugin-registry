@@ -113,6 +113,36 @@ async def runtime_scan_defaults(db: AsyncSession) -> dict[str, Any]:
     }
 
 
+async def runtime_virustotal_config(db: AsyncSession) -> dict[str, Any]:
+    return {
+        "api_key": await get_runtime_value(db, "VIRUSTOTAL_API_KEY", settings.virustotal_api_key, str),
+        "timeout_seconds": await get_runtime_value(
+            db,
+            "VIRUSTOTAL_TIMEOUT_SECONDS",
+            settings.virustotal_timeout_seconds,
+            int,
+        ),
+        "poll_interval_seconds": await get_runtime_value(
+            db,
+            "VIRUSTOTAL_POLL_INTERVAL_SECONDS",
+            settings.virustotal_poll_interval_seconds,
+            int,
+        ),
+        "max_poll_attempts": await get_runtime_value(
+            db,
+            "VIRUSTOTAL_MAX_POLL_ATTEMPTS",
+            settings.virustotal_max_poll_attempts,
+            int,
+        ),
+        "max_direct_upload_bytes": await get_runtime_value(
+            db,
+            "VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES",
+            settings.virustotal_max_direct_upload_bytes,
+            int,
+        ),
+    }
+
+
 async def runtime_task_max_attempts(db: AsyncSession | None = None) -> int:
     if db is None:
         return settings.task_max_attempts

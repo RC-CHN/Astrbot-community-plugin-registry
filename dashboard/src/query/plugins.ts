@@ -2,12 +2,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, type Ref } from 'vue'
 
 import {
+  deletePlugin,
   getPlugin,
   listPendingPlugins,
   listPlugins,
   refreshCache,
+  runVersionScanProvider,
   setLatestVersion,
+  skipVersionScanProvider,
   submitPlugin,
+  triggerVersionScan,
+  updatePluginReviewStatus,
   updatePluginStatus,
   updateVersionStatus,
   uploadPlugin,
@@ -35,6 +40,7 @@ export function usePluginDetail(id: Ref<string>) {
     queryKey: computed(() => queryKeys.plugins.detail(id.value)),
     queryFn: () => getPlugin(id.value),
     enabled: computed(() => Boolean(id.value)),
+    refetchInterval: 3000,
   })
 }
 
@@ -56,6 +62,15 @@ export function usePluginMutations() {
         updatePluginStatus(pluginId, status),
       onSuccess: invalidatePlugins,
     }),
+    updatePluginReviewStatus: useMutation({
+      mutationFn: ({ pluginId, status, reviewStatus }: { pluginId: string; status: Parameters<typeof updatePluginStatus>[1]; reviewStatus: Parameters<typeof updatePluginReviewStatus>[2] }) =>
+        updatePluginReviewStatus(pluginId, status, reviewStatus),
+      onSuccess: invalidatePlugins,
+    }),
+    deletePlugin: useMutation({
+      mutationFn: ({ pluginId }: { pluginId: string }) => deletePlugin(pluginId),
+      onSuccess: invalidatePlugins,
+    }),
     updateVersionStatus: useMutation({
       mutationFn: ({ pluginId, versionId, status }: { pluginId: string; versionId: string; status: Parameters<typeof updateVersionStatus>[2] }) =>
         updateVersionStatus(pluginId, versionId, status),
@@ -64,6 +79,21 @@ export function usePluginMutations() {
     setLatest: useMutation({
       mutationFn: ({ pluginId, versionId }: { pluginId: string; versionId: string }) =>
         setLatestVersion(pluginId, versionId),
+      onSuccess: invalidatePlugins,
+    }),
+    triggerScan: useMutation({
+      mutationFn: ({ pluginId, versionId }: { pluginId: string; versionId: string }) =>
+        triggerVersionScan(pluginId, versionId),
+      onSuccess: invalidatePlugins,
+    }),
+    runScanProvider: useMutation({
+      mutationFn: ({ pluginId, versionId, provider }: { pluginId: string; versionId: string; provider: 'virustotal' | 'llm_agent' }) =>
+        runVersionScanProvider(pluginId, versionId, provider),
+      onSuccess: invalidatePlugins,
+    }),
+    skipScanProvider: useMutation({
+      mutationFn: ({ pluginId, versionId, provider }: { pluginId: string; versionId: string; provider: 'virustotal' | 'llm_agent' }) =>
+        skipVersionScanProvider(pluginId, versionId, provider),
       onSuccess: invalidatePlugins,
     }),
     refreshCache: useMutation({ mutationFn: refreshCache, onSuccess: invalidatePlugins }),

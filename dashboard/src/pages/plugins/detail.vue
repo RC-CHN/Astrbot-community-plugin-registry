@@ -4,7 +4,10 @@
     :description="plugin?.plugin_key"
   >
     <template v-if="plugin" #status>
-      <status-tag kind="plugin" :value="plugin.status" />
+      <n-space size="small">
+        <status-tag kind="plugin" :value="plugin.status" />
+        <n-tag size="small" round>{{ reviewStatusLabel(plugin.review_status) }}</n-tag>
+      </n-space>
     </template>
     <template #actions>
       <n-button @click="router.back()">返回</n-button>
@@ -25,6 +28,17 @@
       <n-button v-if="plugin?.status === 'active'" secondary @click="setPluginStatus('disabled')">
         禁用
       </n-button>
+      <n-popconfirm
+        v-if="plugin && plugin.status !== 'deleted'"
+        positive-text="确认删除"
+        negative-text="取消"
+        @positive-click="deletePlugin"
+      >
+        <template #trigger>
+          <n-button type="error" secondary>删除</n-button>
+        </template>
+        删除后插件和版本会从公开索引移除，确认继续？
+      </n-popconfirm>
     </template>
   </page-header>
 
@@ -41,7 +55,15 @@
             <dd>{{ plugin.description }}</dd>
             <dt>Repo</dt>
             <dd>
-              <a v-if="plugin.repo_url" :href="plugin.repo_url" target="_blank">{{ plugin.repo_url }}</a>
+              <a
+                v-if="plugin.repo_url"
+                class="text-link"
+                :href="plugin.repo_url"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {{ plugin.repo_url }}
+              </a>
               <span v-else>-</span>
             </dd>
             <dt>标签</dt>
@@ -67,6 +89,9 @@
             :versions="plugin.versions"
             @set-version-status="setVersionStatus"
             @set-latest="setLatest"
+            @rescan="rescanVersion"
+            @run-scan-provider="runScanProvider"
+            @skip-scan-provider="skipScanProvider"
           />
         </n-tab-pane>
         <n-tab-pane name="metadata" tab="元数据">
@@ -121,10 +146,25 @@ async function setLatest(version: VersionSummary) {
   await runAction(() => mutations.setLatest.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id }))
 }
 
+async function rescanVersion(version: VersionSummary) {
+  if (!plugin.value) return
+  await runAction(() => mutations.triggerScan.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id }))
+}
+
+async function deletePlugin() {
+  if (!plugin.value) return
+  await runAction(() => mutations.deletePlugin.mutateAsync({ pluginId: plugin.value!.id }))
+  router.push('/plugins')
+}
+
 async function skipReviewAndPublish() {
   if (!plugin.value || !latestCandidate.value) return
   await runAction(async () => {
-    await mutations.updatePluginStatus.mutateAsync({ pluginId: plugin.value!.id, status: 'active' })
+    await mutations.updatePluginReviewStatus.mutateAsync({
+      pluginId: plugin.value!.id,
+      status: 'active',
+      reviewStatus: 'skipped',
+    })
     await mutations.updateVersionStatus.mutateAsync({
       pluginId: plugin.value!.id,
       versionId: latestCandidate.value!.id,
@@ -138,6 +178,20 @@ async function skipReviewAndPublish() {
   })
 }
 
+async function runScanProvider(version: VersionSummary, provider: 'virustotal' | 'llm_agent') {
+  if (!plugin.value) return
+  await runAction(() =>
+    mutations.runScanProvider.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id, provider }),
+  )
+}
+
+async function skipScanProvider(version: VersionSummary, provider: 'virustotal' | 'llm_agent') {
+  if (!plugin.value) return
+  await runAction(() =>
+    mutations.skipScanProvider.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id, provider }),
+  )
+}
+
 async function runAction(action: () => Promise<unknown>) {
   actionError.value = null
   try {
@@ -147,6 +201,16 @@ async function runAction(action: () => Promise<unknown>) {
   } catch (err) {
     actionError.value = err
   }
+}
+
+function reviewStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: '人工审核待处理',
+    approved: '人工审核通过',
+    skipped: '人工审核跳过',
+    rejected: '人工审核拒绝',
+  }
+  return labels[status] || status
 }
 </script>
 

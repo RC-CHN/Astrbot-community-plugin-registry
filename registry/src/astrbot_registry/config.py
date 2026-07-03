@@ -1,7 +1,8 @@
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, NoDecode
 
 
 # Project root, so .env is always loaded from the repo root regardless of CWD.
@@ -17,11 +18,15 @@ class Settings(BaseSettings):
     app_reload: bool = True
     log_level: str = "info"
     public_cache_max_age: int = 60
+    bootstrap_admin_username: str = ""
+    bootstrap_admin_password: str = ""
+    bootstrap_admin_role: str = "admin"
 
     # Database
     database_url: str = (
         "postgresql+asyncpg://astrbot:astrbot_secret@localhost:5432/astrbot_registry"
     )
+    database_auto_migrate: bool = True
 
     # S3 (SeaweedFS)
     s3_endpoint: str = "http://localhost:8333"
@@ -51,6 +56,10 @@ class Settings(BaseSettings):
 
     # Security scans
     virustotal_api_key: str = ""
+    virustotal_timeout_seconds: int = 120
+    virustotal_poll_interval_seconds: int = 5
+    virustotal_max_poll_attempts: int = 24
+    virustotal_max_direct_upload_bytes: int = 32 * 1024 * 1024
     llm_agent_enabled: bool = False
     llm_agent_base_url: str = ""
     llm_agent_api_key: str = ""
@@ -65,7 +74,7 @@ class Settings(BaseSettings):
     max_release_zip_bytes: int = 50 * 1024 * 1024
     git_clone_timeout: int = 120
     build_network_disabled: bool = True
-    git_allowed_hosts: list[str] = ["github.com"]
+    git_allowed_hosts: Annotated[list[str], NoDecode] = ["github.com"]
     git_temp_prefix: str = "astrbot-repo-"
     webhook_auto_version: str = "auto"
 

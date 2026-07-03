@@ -9,8 +9,10 @@ export type LoginRequest = {
 }
 
 export type PluginStatus = 'pending' | 'active' | 'disabled' | 'deleted'
+export type ReviewStatus = 'pending' | 'approved' | 'skipped' | 'rejected'
 export type VersionStatus = 'draft' | 'active' | 'deprecated' | 'deleted'
 export type BuildStatus = 'pending' | 'building' | 'success' | 'failed' | 'scanning'
+export type ScanMode = 'pending' | 'real' | 'skipped' | 'error'
 
 export type PluginSummary = {
   id: string
@@ -18,6 +20,7 @@ export type PluginSummary = {
   display_name: string | null
   author: string
   status: PluginStatus
+  review_status: ReviewStatus
   category: string | null
   version_count: number
   created_at: string | null
@@ -25,8 +28,8 @@ export type PluginSummary = {
 }
 
 export type ScanSummary = {
-  virustotal: { pass: boolean | null; msg: string | null }
-  llm_agent: { pass: boolean | null; msg: string | null }
+  virustotal: { pass: boolean | null; msg: string | null; mode: ScanMode }
+  llm_agent: { pass: boolean | null; msg: string | null; mode: ScanMode }
   scanned_at?: string | null
 }
 

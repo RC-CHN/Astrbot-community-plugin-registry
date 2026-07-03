@@ -114,13 +114,21 @@ def _format_entry(plugin: Plugin, version: PluginVersion, s3_public_url: str | N
     scan = version.scan
     if scan:
         sec_scan = {
-            "virustotal": {"pass": bool(scan.virustotal_pass), "msg": scan.virustotal_msg or ""},
-            "llm_agent": {"pass": bool(scan.llm_agent_pass), "msg": scan.llm_agent_msg or ""},
+            "virustotal": {
+                "pass": bool(scan.virustotal_pass),
+                "msg": scan.virustotal_msg or "",
+                "mode": scan.virustotal_mode,
+            },
+            "llm_agent": {
+                "pass": bool(scan.llm_agent_pass),
+                "msg": scan.llm_agent_msg or "",
+                "mode": scan.llm_agent_mode,
+            },
         }
     else:
         sec_scan = {
-            "virustotal": {"pass": False, "msg": "not scanned"},
-            "llm_agent": {"pass": False, "msg": "not scanned"},
+            "virustotal": {"pass": False, "msg": "not scanned", "mode": "pending"},
+            "llm_agent": {"pass": False, "msg": "not scanned", "mode": "pending"},
         }
 
     return {

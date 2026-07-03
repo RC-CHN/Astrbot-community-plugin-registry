@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 
 import uvicorn
 from fastapi import Request
@@ -13,8 +14,14 @@ from .services.errors import RegistryError
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: init external resources on startup."""
+    from .services.bootstrap_service import bootstrap_admin_user
+    from .services.migration_service import run_database_migrations
+
+    await asyncio.to_thread(run_database_migrations)
+
+    await bootstrap_admin_user()
+
     if settings.s3_auto_create_bucket:
-        import asyncio
         from .services.s3_service import ensure_bucket_exists
 
         await asyncio.to_thread(ensure_bucket_exists)

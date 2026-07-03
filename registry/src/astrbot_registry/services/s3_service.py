@@ -23,6 +23,7 @@ def get_s3_client() -> Any:
             connect_timeout=settings.s3_connect_timeout,
             read_timeout=settings.s3_read_timeout,
             retries={"max_attempts": settings.s3_max_attempts},
+            proxies={},
         ),
     )
 
@@ -36,7 +37,8 @@ def ensure_bucket_exists() -> None:
         client.head_bucket(Bucket=settings.s3_bucket)
     except ClientError as exc:
         error_code = exc.response["Error"]["Code"]
-        if error_code in ("404", "NoSuchBucket"):
+        status_code = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if error_code in ("404", "NoSuchBucket") or status_code == 502:
             client.create_bucket(Bucket=settings.s3_bucket)
         else:
             raise
@@ -55,6 +57,16 @@ async def upload_file(local_path: Path, s3_key: str) -> None:
 def _upload_file(local_path: Path, s3_key: str) -> None:
     client = get_s3_client()
     client.upload_file(str(local_path), settings.s3_bucket, s3_key)
+
+
+async def download_file(s3_key: str, local_path: Path) -> None:
+    """Download an object from S3 to a local file."""
+    await asyncio.to_thread(_download_file, s3_key, local_path)
+
+
+def _download_file(s3_key: str, local_path: Path) -> None:
+    client = get_s3_client()
+    client.download_file(settings.s3_bucket, s3_key, str(local_path))
 
 
 async def delete_file(s3_key: str) -> None:

@@ -8,6 +8,15 @@ def test_config_response_includes_effective_values() -> None:
     assert response["effective_values"]["PUBLIC_CACHE_MAX_AGE"] == "123"
 
 
+def test_config_response_includes_virustotal_runtime_defaults() -> None:
+    response = build_config_response({})
+
+    assert response["effective_values"]["VIRUSTOTAL_TIMEOUT_SECONDS"] == "120"
+    assert response["effective_values"]["VIRUSTOTAL_POLL_INTERVAL_SECONDS"] == "5"
+    assert response["effective_values"]["VIRUSTOTAL_MAX_POLL_ATTEMPTS"] == "24"
+    assert response["effective_values"]["VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES"] == "33554432"
+
+
 def test_config_response_redacts_sensitive_values() -> None:
     response = build_config_response({"GITHUB_WEBHOOK_SECRET": "secret"})
 

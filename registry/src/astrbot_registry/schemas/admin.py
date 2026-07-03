@@ -47,6 +47,7 @@ class VersionStatusUpdate(BaseModel):
 
 class PluginStatusUpdate(BaseModel):
     status: Literal["pending", "active", "disabled", "deleted"]
+    review_status: Literal["pending", "approved", "skipped", "rejected"] | None = None
 
 
 class SetLatestRequest(BaseModel):
@@ -80,6 +81,7 @@ class PluginSummary(BaseModel):
     display_name: str | None
     author: str
     status: str
+    review_status: str = "pending"
     category: str | None = None
     version_count: int = 0
     created_at: datetime | None = None

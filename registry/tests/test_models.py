@@ -44,6 +44,13 @@ def test_security_scan_version_is_unique() -> None:
     assert any({"version_id"} == set(constraint.columns.keys()) for constraint in unique_constraints)
 
 
+def test_security_scan_mode_constraints_are_declared() -> None:
+    constraint_names = {constraint.name for constraint in SecurityScan.__table__.constraints}
+
+    assert "ck_security_scans_virustotal_mode" in constraint_names
+    assert "ck_security_scans_llm_agent_mode" in constraint_names
+
+
 def test_version_stats_constraints_and_indexes_are_declared() -> None:
     constraint_names = {constraint.name for constraint in PluginVersionStat.__table__.constraints}
     index_names = {index.name for index in PluginVersionStat.__table__.indexes}

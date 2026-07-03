@@ -23,6 +23,11 @@ a:hover {
   text-decoration: underline;
 }
 
+.text-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .muted {
   color: var(--text-secondary);
 }

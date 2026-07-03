@@ -51,7 +51,7 @@ async def handle_task(task: dict) -> None:
                 created_by=payload.get("user_id"),
             )
         elif task_type == "scan":
-            await scan_version(db, uuid.UUID(payload["version_id"]))
+            await scan_version(db, uuid.UUID(payload["version_id"]), providers=payload.get("providers"))
         else:
             logger.warning("Unknown task type: %s", task_type)
 

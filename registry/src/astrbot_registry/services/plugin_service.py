@@ -134,11 +134,18 @@ async def set_plugin_status(
     db: AsyncSession,
     plugin_id: uuid.UUID,
     status: str,
+    review_status: str | None = None,
 ) -> Plugin:
     plugin = await get_plugin(db, plugin_id)
     if plugin is None:
         raise NotFoundError("Plugin not found")
     plugin.status = status
+    if review_status is not None:
+        plugin.review_status = review_status
+    elif status == "active" and plugin.review_status == "pending":
+        plugin.review_status = "approved"
+    elif status == "disabled" and plugin.review_status == "pending":
+        plugin.review_status = "rejected"
     if status in {"disabled", "deleted"}:
         await db.execute(
             update(PluginVersion)
@@ -155,14 +162,8 @@ async def delete_plugin(db: AsyncSession, plugin_id: uuid.UUID) -> Plugin:
     plugin = await get_plugin(db, plugin_id)
     if plugin is None:
         raise NotFoundError("Plugin not found")
-    plugin.status = "deleted"
-    await db.execute(
-        update(PluginVersion)
-        .where(PluginVersion.plugin_id == plugin_id)
-        .values(is_latest=False, version_status="deleted")
-    )
+    await db.delete(plugin)
     await db.commit()
-    await db.refresh(plugin)
     await _refresh_registry_cache(db)
     return plugin
 
