@@ -14,7 +14,16 @@ Then start the backend from the repo root:
 ```bash
 cd ..
 cp .env.example .env
+cd registry
+uv run alembic upgrade head
 uv run serve
+```
+
+Run the background worker in a second terminal when testing build/scan queues:
+
+```bash
+cd registry
+uv run python -m astrbot_registry.worker
 ```
 
 Services and resource limits:

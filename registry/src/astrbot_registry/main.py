@@ -1,10 +1,13 @@
 from contextlib import asynccontextmanager
 
 import uvicorn
+from fastapi import Request
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from .api.router import api_router
 from .config import settings
+from .services.errors import RegistryError
 
 
 @asynccontextmanager
@@ -27,6 +30,14 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(api_router)
+
+    @app.exception_handler(RegistryError)
+    async def registry_error_handler(request: Request, exc: RegistryError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": str(exc)},
+        )
+
     return app
 
 
@@ -36,9 +47,9 @@ app = create_app()
 def main() -> None:
     uvicorn.run(
         "astrbot_registry.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
+        host=settings.app_host,
+        port=settings.app_port,
+        reload=settings.app_reload,
     )
 
 

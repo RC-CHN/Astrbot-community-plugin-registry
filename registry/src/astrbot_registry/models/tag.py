@@ -2,7 +2,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import Column, ForeignKey, String, Table
+from sqlalchemy import Column, ForeignKey, String, Table, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -18,6 +18,7 @@ class Tag(Base):
         pg.UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
     )
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
 

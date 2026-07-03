@@ -2,7 +2,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import ForeignKey, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -19,6 +19,7 @@ class PluginI18n(Base):
         pg.UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
     )
     plugin_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("plugins.id", ondelete="CASCADE"),

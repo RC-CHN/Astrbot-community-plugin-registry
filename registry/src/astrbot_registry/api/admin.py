@@ -25,6 +25,7 @@ from ..database import async_session
 from ..models import Plugin, User, WebhookEvent
 from ..schemas.admin import (
     LoginRequest,
+    ConfigUpdate,
     PluginCreateRequest,
     PluginStatusUpdate,
     SetLatestRequest,
@@ -35,6 +36,7 @@ from ..schemas.admin import (
 )
 from ..services.auth_service import authenticate_user, create_access_token, get_password_hash
 from ..services.build_service import build_from_repo
+from ..services.config_service import list_config, update_config
 from ..services.plugin_service import (
     create_plugin,
     create_version_from_upload,
@@ -49,7 +51,7 @@ from ..services.plugin_service import (
 from ..services.registry_service import refresh_cache
 from ..services.scan_service import scan_version
 from ..services.task_queue import enqueue_task
-from ..utils.git_utils import clone_repo, get_metadata_path, temp_repo_dir
+from ..utils.git_utils import GitError, clone_repo, get_metadata_path, temp_repo_dir
 from ..utils.metadata_parser import parse_metadata_yaml
 from ..utils.zip_utils import (
     ZipValidationError,
@@ -195,9 +197,12 @@ async def submit_plugin(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_reviewer),
 ) -> dict:
-    with temp_repo_dir() as repo_dir:
-        clone_repo(request.repo_url, repo_dir, ref=request.ref, timeout=settings.git_clone_timeout)
-        metadata = parse_metadata_yaml(get_metadata_path(repo_dir))
+    try:
+        with temp_repo_dir() as repo_dir:
+            clone_repo(request.repo_url, repo_dir, ref=request.ref, timeout=settings.git_clone_timeout)
+            metadata = parse_metadata_yaml(get_metadata_path(repo_dir))
+    except (GitError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     plugin = await create_plugin(
         db,
@@ -463,6 +468,23 @@ async def admin_stats(
     return {"total_plugins": total or 0, "pending_plugins": pending or 0}
 
 
+@admin_router.get("/config")
+async def get_config_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    return {"values": await list_config(db)}
+
+
+@admin_router.put("/config")
+async def update_config_endpoint(
+    request: ConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    return {"values": await update_config(db, request.values)}
+
+
 @admin_router.post("/cache/refresh")
 async def refresh_cache_endpoint(
     db: AsyncSession = Depends(get_db),
@@ -540,6 +562,11 @@ async def github_webhook(
     await _enqueue_or_fallback(
         background_tasks,
         "build",
-        {"plugin_id": str(plugin.id), "version": "auto", "ref": ref, "user_id": ""},
+        {
+            "plugin_id": str(plugin.id),
+            "version": settings.webhook_auto_version,
+            "ref": ref,
+            "user_id": "",
+        },
     )
     return {"status": "queued"}

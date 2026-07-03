@@ -1,4 +1,12 @@
-from astrbot_registry.models import Plugin, PluginVersion, SecurityScan, User
+from astrbot_registry.models import (
+    Plugin,
+    PluginVersion,
+    PluginVersionStat,
+    SecurityScan,
+    SystemConfig,
+    User,
+    WebhookEvent,
+)
 
 
 def test_status_and_role_constraints_are_declared() -> None:
@@ -12,6 +20,8 @@ def test_status_and_role_constraints_are_declared() -> None:
     assert "ck_versions_build_status" in constraint_names
     assert "ck_versions_version_status" in constraint_names
     assert "ck_users_role" in constraint_names
+    assert SystemConfig.__tablename__ == "system_config"
+    assert WebhookEvent.__tablename__ == "webhook_events"
 
 
 def test_latest_partial_unique_index_is_declared() -> None:
@@ -32,3 +42,13 @@ def test_security_scan_version_is_unique() -> None:
         if getattr(constraint, "columns", None) is not None and constraint.name is None
     ]
     assert any({"version_id"} == set(constraint.columns.keys()) for constraint in unique_constraints)
+
+
+def test_version_stats_constraints_and_indexes_are_declared() -> None:
+    constraint_names = {constraint.name for constraint in PluginVersionStat.__table__.constraints}
+    index_names = {index.name for index in PluginVersionStat.__table__.indexes}
+
+    assert "uq_version_stats_version_date" in constraint_names
+    assert "ck_version_stats_download_count" in constraint_names
+    assert "idx_version_stats_version" in index_names
+    assert "idx_version_stats_date" in index_names

@@ -6,8 +6,9 @@ import json
 from typing import Any
 
 from ..cache import get_redis
+from ..config import settings
 
-QUEUE_KEY = "registry_tasks"
+QUEUE_KEY = settings.redis_task_queue_key
 
 
 async def enqueue_task(task_type: str, payload: dict[str, Any]) -> bool:

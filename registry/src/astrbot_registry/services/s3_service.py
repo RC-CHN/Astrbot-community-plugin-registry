@@ -71,5 +71,6 @@ def build_s3_key(plugin, version: str, source_type: str, commit_sha: str | None 
     """Build the S3 object key for a plugin zip package."""
     short = commit_sha[:7] if commit_sha else source_type
     filename = f"{plugin.plugin_key}-{version}-{short}.zip"
-    author = plugin.author or "unknown"
-    return f"plugins/{author}/{plugin.plugin_key}/{version}/{filename}"
+    author = plugin.author or settings.s3_unknown_author
+    prefix = settings.s3_plugins_prefix.strip("/")
+    return f"{prefix}/{author}/{plugin.plugin_key}/{version}/{filename}"

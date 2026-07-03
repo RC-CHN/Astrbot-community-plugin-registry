@@ -28,6 +28,7 @@ class Plugin(Base):
         pg.UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
     )
     plugin_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(255))
@@ -37,11 +38,16 @@ class Plugin(Base):
     social_link: Mapped[str | None] = mapped_column(String(512))
     category: Mapped[str | None] = mapped_column(String(100))
     logo_s3_key: Mapped[str | None] = mapped_column(String(512))
-    stars: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    stars: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     support_platforms: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     astrbot_version: Mapped[str | None] = mapped_column(String(100))
-    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default="pending",
+        server_default=text("'pending'"),
+        nullable=False,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         pg.TIMESTAMP(timezone=True),

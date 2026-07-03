@@ -30,6 +30,7 @@ class WebhookEvent(Base):
         pg.UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
     )
     plugin_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("plugins.id", ondelete="CASCADE"),
@@ -39,7 +40,12 @@ class WebhookEvent(Base):
     triggered_version_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("plugin_versions.id", ondelete="SET NULL"),
     )
-    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default="pending",
+        server_default=text("'pending'"),
+        nullable=False,
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         pg.TIMESTAMP(timezone=True),

@@ -49,3 +49,7 @@ class PluginStatusUpdate(BaseModel):
 
 class SetLatestRequest(BaseModel):
     is_latest: bool = True
+
+
+class ConfigUpdate(BaseModel):
+    values: dict[str, str]

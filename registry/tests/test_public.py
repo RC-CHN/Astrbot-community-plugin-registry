@@ -19,6 +19,8 @@ def test_plugins_mocked(client: TestClient) -> None:
         response = client.get("/api/v1/plugins")
         assert response.status_code == 200
         assert "astrbot-plugin-test" in response.json()
+        assert response.headers["cache-control"] == "public, max-age=60"
+        assert response.headers["etag"]
 
 
 def test_plugins_md5_mocked(client: TestClient) -> None:

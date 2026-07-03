@@ -63,6 +63,7 @@ class PluginVersion(Base):
         pg.UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
     )
     plugin_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("plugins.id", ondelete="CASCADE"),
@@ -70,16 +71,31 @@ class PluginVersion(Base):
     )
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     commit_sha: Mapped[str | None] = mapped_column(String(64))
-    source_type: Mapped[str] = mapped_column(String(32), default="git_auto", nullable=False)
+    source_type: Mapped[str] = mapped_column(
+        String(32),
+        default="git_auto",
+        server_default=text("'git_auto'"),
+        nullable=False,
+    )
     download_url: Mapped[str | None] = mapped_column(String(512))
     s3_key: Mapped[str | None] = mapped_column(String(512))
     file_size: Mapped[int | None] = mapped_column(BigInteger)
     metadata_raw: Mapped[str | None] = mapped_column(Text)
     changelog: Mapped[str | None] = mapped_column(Text)
-    build_status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    build_status: Mapped[str] = mapped_column(
+        String(50),
+        default="pending",
+        server_default=text("'pending'"),
+        nullable=False,
+    )
     build_log: Mapped[str | None] = mapped_column(Text)
-    version_status: Mapped[str] = mapped_column(String(50), default="draft", nullable=False)
-    is_latest: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    version_status: Mapped[str] = mapped_column(
+        String(50),
+        default="draft",
+        server_default=text("'draft'"),
+        nullable=False,
+    )
+    is_latest: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
     )
@@ -88,12 +104,12 @@ class PluginVersion(Base):
         pg.TIMESTAMP(timezone=True),
         nullable=False,
         server_default=text("now()"),
-        onupdate=func.now(),
     )
     updated_at: Mapped[datetime] = mapped_column(
         pg.TIMESTAMP(timezone=True),
         nullable=False,
         server_default=text("now()"),
+        onupdate=func.now(),
     )
 
     plugin: Mapped["Plugin"] = relationship("Plugin", back_populates="versions")

@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from ..models import Plugin, PluginI18n, PluginVersion, Tag
 from ..schemas.plugin import PluginUpdate
+from ..services.errors import ConflictError, InvalidStateError, NotFoundError, ValidationError
 from ..services.s3_service import build_public_url, build_s3_key, upload_file
 from ..utils.metadata_parser import PluginMetadata, infer_plugin_key
 
@@ -51,7 +52,7 @@ async def create_plugin(
     plugin_key = infer_plugin_key(metadata.name)
     existing = await get_plugin_by_key(db, plugin_key)
     if existing is not None:
-        raise ValueError(f"Plugin key already exists: {plugin_key}")
+        raise ConflictError(f"Plugin key already exists: {plugin_key}")
 
     plugin = Plugin(
         plugin_key=plugin_key,
@@ -109,7 +110,7 @@ async def set_plugin_status(
 ) -> Plugin:
     plugin = await get_plugin(db, plugin_id)
     if plugin is None:
-        raise ValueError("Plugin not found")
+        raise NotFoundError("Plugin not found")
     plugin.status = status
     await db.commit()
     await db.refresh(plugin)
@@ -120,7 +121,7 @@ async def set_plugin_status(
 async def delete_plugin(db: AsyncSession, plugin_id: uuid.UUID) -> Plugin:
     plugin = await get_plugin(db, plugin_id)
     if plugin is None:
-        raise ValueError("Plugin not found")
+        raise NotFoundError("Plugin not found")
     plugin.status = "deleted"
     await db.commit()
     await db.refresh(plugin)
@@ -148,7 +149,7 @@ async def create_version(
         .where(PluginVersion.version == version)
     )
     if existing.scalar_one_or_none() is not None:
-        raise ValueError(f"Version {version} already exists for plugin {plugin.plugin_key}")
+        raise ConflictError(f"Version {version} already exists for plugin {plugin.plugin_key}")
 
     pv = PluginVersion(
         plugin_id=plugin.id,
@@ -200,7 +201,7 @@ async def set_version_status(
 ) -> PluginVersion:
     version = await get_version(db, version_id)
     if version is None:
-        raise ValueError("Version not found")
+        raise NotFoundError("Version not found")
     version.version_status = status
     if status in {"draft", "deprecated", "deleted"}:
         version.is_latest = False
@@ -221,9 +222,9 @@ async def set_latest_version(
         .with_for_update()
     )
     if plugin is None:
-        raise ValueError("Plugin not found")
+        raise NotFoundError("Plugin not found")
     if plugin.status != "active":
-        raise ValueError("Plugin must be active before setting latest")
+        raise InvalidStateError("Plugin must be active before setting latest")
 
     result = await db.execute(
         select(PluginVersion)
@@ -234,13 +235,13 @@ async def set_latest_version(
     versions = result.scalars().all()
     version = next((item for item in versions if item.id == version_id), None)
     if version is None:
-        raise ValueError("Version not found")
+        raise NotFoundError("Version not found")
     if version.version_status != "active":
-        raise ValueError("Version must be active to be set as latest")
+        raise InvalidStateError("Version must be active to be set as latest")
     if version.build_status != "success":
-        raise ValueError("Version build must be successful to be set as latest")
+        raise InvalidStateError("Version build must be successful to be set as latest")
     if not scan_passed(version):
-        raise ValueError("Version security scan must pass before setting latest")
+        raise InvalidStateError("Version security scan must pass before setting latest")
 
     await db.execute(
         update(PluginVersion)
@@ -321,11 +322,11 @@ def assert_metadata_matches_plugin(metadata: PluginMetadata, plugin: Plugin) -> 
     expected_key = plugin.plugin_key
     actual_key = infer_plugin_key(metadata.name)
     if actual_key != expected_key:
-        raise ValueError(
+        raise ValidationError(
             f"metadata plugin key {actual_key} does not match existing plugin {expected_key}"
         )
     if metadata.author != plugin.author:
-        raise ValueError("metadata author does not match existing plugin")
+        raise ValidationError("metadata author does not match existing plugin")
 
 
 async def _refresh_registry_cache(db: AsyncSession) -> None:

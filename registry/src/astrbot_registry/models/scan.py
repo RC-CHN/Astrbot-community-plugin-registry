@@ -20,6 +20,7 @@ class SecurityScan(Base):
         pg.UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
     )
     version_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("plugin_versions.id", ondelete="CASCADE"),

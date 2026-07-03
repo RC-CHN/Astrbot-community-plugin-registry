@@ -1,14 +1,23 @@
+import hashlib
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..api.deps import get_db
+from ..config import settings
 from ..models import Plugin
 from ..services.plugin_service import get_latest_version, get_plugin_by_key
-from ..services.registry_service import generate_registry_json, get_registry_md5, get_stats
+from ..services.registry_service import (
+    canonical_registry_bytes,
+    generate_registry_json,
+    get_registry_md5,
+    get_stats,
+)
 from ..services.s3_service import build_public_url
+from ..services.stats_service import increment_download_count
 
 public_router = APIRouter(tags=["public"])
 
@@ -19,9 +28,17 @@ async def health_check() -> dict:
 
 
 @public_router.get("/plugins")
-async def list_plugins(db: AsyncSession = Depends(get_db)) -> dict:
+async def list_plugins(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     """Return the full plugin registry in AstrBot-compatible format."""
-    return await generate_registry_json(db)
+    registry = await generate_registry_json(db)
+    md5 = hashlib.md5(canonical_registry_bytes(registry)).hexdigest()
+    return JSONResponse(
+        content=registry,
+        headers={
+            "ETag": f'"{md5}"',
+            "Cache-Control": f"public, max-age={settings.public_cache_max_age}",
+        },
+    )
 
 
 @public_router.get("/plugins-md5")
@@ -51,6 +68,7 @@ async def download_plugin(plugin_key: str, db: AsyncSession = Depends(get_db)) -
     latest = await get_latest_version(db, plugin.id)
     if latest is None or not latest.download_url:
         raise HTTPException(status_code=404, detail="No active version available")
+    await increment_download_count(db, latest.id)
     return RedirectResponse(url=latest.download_url)
 
 

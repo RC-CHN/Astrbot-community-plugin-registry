@@ -7,6 +7,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Generator
+from urllib.parse import urlparse
+
+from ..config import settings
 
 
 class GitError(RuntimeError):
@@ -21,6 +24,9 @@ _GITHUB_URL_RE = re.compile(
 
 def parse_github_url(url: str) -> tuple[str, str]:
     """Return (owner, repo) from a GitHub HTTPS URL."""
+    host = (urlparse(url).hostname or "").lower()
+    if host not in settings.git_allowed_hosts:
+        raise ValueError(f"Git host is not allowed: {host}")
     match = _GITHUB_URL_RE.match(url)
     if not match:
         raise ValueError(f"Invalid GitHub URL: {url}")
@@ -108,5 +114,5 @@ def get_metadata_path(repo_dir: Path) -> Path:
 @contextmanager
 def temp_repo_dir() -> Generator[Path, None, None]:
     """Context manager yielding a temporary directory for cloning."""
-    with TemporaryDirectory(prefix="astrbot-repo-") as tmp:
+    with TemporaryDirectory(prefix=settings.git_temp_prefix) as tmp:
         yield Path(tmp)

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Plugin, PluginVersion
+from ..services.errors import InvalidStateError, ValidationError
 from ..services.plugin_service import assert_metadata_matches_plugin, update_version_after_build
 from ..services.s3_service import build_public_url, build_s3_key, upload_file
 from ..services.scan_service import scan_version
@@ -49,7 +50,7 @@ def _create_zip(repo_dir: Path, plugin_key: str, version: str) -> Path:
                 continue
             total_size += file_path.stat().st_size
             if total_size > settings.max_release_zip_bytes:
-                raise ValueError("release zip is too large")
+                raise ValidationError("release zip is too large")
             zf.write(file_path, rel)
     return zip_path
 
@@ -67,7 +68,7 @@ async def build_from_repo(
     from ..services.plugin_service import create_version
 
     if not plugin.repo_url:
-        raise ValueError("Plugin has no repository URL")
+        raise InvalidStateError("Plugin has no repository URL")
 
     # Create a pending version record to track the build.
     placeholder_key = build_s3_key(plugin, version, "git_auto", ref)
