@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     s3_auto_create_bucket: bool = True
 
+    # Redis
+    redis_url: str | None = "redis://localhost:6379"
+    redis_cache_ttl: int = 3600
+
     # JWT
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

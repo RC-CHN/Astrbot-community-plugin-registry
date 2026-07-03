@@ -1,8 +1,9 @@
+from datetime import datetime
 import uuid
 from typing import TYPE_CHECKING
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import String
+from sqlalchemy import String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -22,10 +23,10 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), default="reviewer")
-    created_at: Mapped[pg.TIMESTAMP] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         pg.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=pg.text("now()"),
+        server_default=text("now()"),
     )
 
     versions: Mapped[list["PluginVersion"]] = relationship(

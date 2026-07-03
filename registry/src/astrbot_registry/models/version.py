@@ -1,9 +1,10 @@
+from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
 import uuid
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import BigInteger, Boolean, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, ForeignKey, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -43,15 +44,15 @@ class PluginVersion(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
     )
 
-    created_at: Mapped[pg.TIMESTAMP] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         pg.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=pg.text("now()"),
+        server_default=text("now()"),
     )
-    updated_at: Mapped[pg.TIMESTAMP] = mapped_column(
+    updated_at: Mapped[datetime] = mapped_column(
         pg.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=pg.text("now()"),
+        server_default=text("now()"),
     )
 
     plugin: Mapped["Plugin"] = relationship("Plugin", back_populates="versions")

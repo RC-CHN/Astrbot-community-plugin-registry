@@ -1,8 +1,9 @@
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import ARRAY, Boolean, Integer, String, Text
+from sqlalchemy import ARRAY, Boolean, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -35,15 +36,15 @@ class Plugin(Base):
     astrbot_version: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(50), default="pending")
 
-    created_at: Mapped[pg.TIMESTAMP] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         pg.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=pg.text("now()"),
+        server_default=text("now()"),
     )
-    updated_at: Mapped[pg.TIMESTAMP] = mapped_column(
+    updated_at: Mapped[datetime] = mapped_column(
         pg.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=pg.text("now()"),
+        server_default=text("now()"),
     )
 
     versions: Mapped[list["PluginVersion"]] = relationship(
