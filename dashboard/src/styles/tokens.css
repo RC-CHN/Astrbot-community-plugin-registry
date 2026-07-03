@@ -1,0 +1,12 @@
+:root {
+  --page-bg: #f6f7f9;
+  --surface: #ffffff;
+  --text-primary: #1f2328;
+  --text-secondary: #667085;
+  --border: #d9dee7;
+  --divider: #edf0f4;
+  --success-bg: #ecfdf3;
+  --warning-bg: #fffaeb;
+  --error-bg: #fef3f2;
+  --info-bg: #eff6ff;
+}
