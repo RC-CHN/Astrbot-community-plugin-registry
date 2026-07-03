@@ -1,5 +1,7 @@
 """Admin-related Pydantic schemas."""
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 from typing import Literal
 
@@ -53,3 +55,70 @@ class SetLatestRequest(BaseModel):
 
 class ConfigUpdate(BaseModel):
     values: dict[str, str]
+
+
+class StatusResponse(BaseModel):
+    status: str
+
+
+class PluginSubmitResponse(BaseModel):
+    plugin_id: str
+    version: str
+    status: str
+
+
+class VersionSubmitResponse(BaseModel):
+    plugin_id: str | None = None
+    version_id: str | None = None
+    version: str | None = None
+    status: str | None = None
+
+
+class PluginSummary(BaseModel):
+    id: str
+    plugin_key: str
+    display_name: str | None
+    author: str
+    status: str
+    category: str | None = None
+    version_count: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class PluginListResponse(BaseModel):
+    items: list[PluginSummary]
+    total: int
+    page: int
+    page_size: int
+
+
+class VersionSummary(BaseModel):
+    id: str
+    version: str
+    source_type: str
+    commit_sha: str | None = None
+    build_status: str
+    build_log: str | None = None
+    version_status: str
+    is_latest: bool
+    download_url: str | None = None
+    file_size: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    scan: dict | None = None
+
+
+class PluginDetail(PluginSummary):
+    description: str
+    repo_url: str | None = None
+    social_link: str | None = None
+    tags: list[str] = []
+    support_platforms: list[str] = []
+    astrbot_version: str | None = None
+    versions: list[VersionSummary] = []
+
+
+class AdminStatsResponse(BaseModel):
+    total_plugins: int
+    pending_plugins: int

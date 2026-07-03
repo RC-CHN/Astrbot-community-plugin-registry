@@ -53,12 +53,12 @@ class Plugin(Base):
         pg.TIMESTAMP(timezone=True),
         nullable=False,
         server_default=text("now()"),
-        onupdate=func.now(),
     )
     updated_at: Mapped[datetime] = mapped_column(
         pg.TIMESTAMP(timezone=True),
         nullable=False,
         server_default=text("now()"),
+        onupdate=func.now(),
     )
 
     versions: Mapped[list["PluginVersion"]] = relationship(

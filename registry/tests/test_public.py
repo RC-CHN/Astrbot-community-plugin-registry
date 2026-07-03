@@ -53,3 +53,8 @@ def test_plugins_search_path_alias(client: TestClient) -> None:
 def test_plugins_stats_path_alias(client: TestClient) -> None:
     paths = {route.path for route in public_router.routes if hasattr(route, "path")}
     assert "/plugins/stats" in paths
+
+
+def test_plugin_install_path_exists() -> None:
+    paths = {route.path for route in public_router.routes if hasattr(route, "path")}
+    assert "/plugin/{plugin_key}/install" in paths

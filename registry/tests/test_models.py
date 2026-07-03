@@ -52,3 +52,8 @@ def test_version_stats_constraints_and_indexes_are_declared() -> None:
     assert "ck_version_stats_download_count" in constraint_names
     assert "idx_version_stats_version" in index_names
     assert "idx_version_stats_date" in index_names
+
+
+def test_plugin_updated_at_is_the_only_update_timestamp() -> None:
+    assert Plugin.__table__.c.created_at.onupdate is None
+    assert Plugin.__table__.c.updated_at.onupdate is not None

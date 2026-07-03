@@ -1,63 +1,78 @@
-version: "3.9"
-
 # 开发环境中间件：轻量级，2C2G/4C4G 服务器也能跑
 # 不包含 registry/dashboard 本体，方便直接用 uv run serve 启动后端
+name: ${COMPOSE_PROJECT_NAME:-astrbot-registry-dev}
+
 services:
   postgres:
-    image: postgres:16-alpine
-    container_name: astrbot-registry-pg-dev
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    container_name: ${POSTGRES_CONTAINER_NAME:-astrbot-registry-dev-postgres}
     restart: unless-stopped
     environment:
-      POSTGRES_DB: astrbot_registry
-      POSTGRES_USER: astrbot
+      POSTGRES_DB: ${PG_DATABASE:-astrbot_registry}
+      POSTGRES_USER: ${PG_USER:-astrbot}
       POSTGRES_PASSWORD: ${PG_PASSWORD:-astrbot_secret}
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
-    mem_limit: 512m
-    cpus: "1.0"
+      - "${PG_PORT:-5432}:5432"
+    mem_limit: ${PG_MEM_LIMIT:-512m}
+    cpus: "${PG_CPUS:-1.0}"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U astrbot -d astrbot_registry"]
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-astrbot} -d ${PG_DATABASE:-astrbot_registry}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
-    image: redis:7-alpine
-    container_name: astrbot-registry-redis-dev
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    container_name: ${REDIS_CONTAINER_NAME:-astrbot-registry-dev-redis}
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command:
+      - redis-server
+      - --appendonly
+      - "${REDIS_APPENDONLY:-yes}"
+      - --maxmemory
+      - "${REDIS_MAXMEMORY:-128mb}"
+      - --maxmemory-policy
+      - "${REDIS_MAXMEMORY_POLICY:-allkeys-lru}"
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
-    mem_limit: 128m
-    cpus: "0.25"
+      - "${REDIS_PORT:-6379}:6379"
+    mem_limit: ${REDIS_MEM_LIMIT:-128m}
+    cpus: "${REDIS_CPUS:-0.25}"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   seaweedfs:
-    image: chrislusf/seaweedfs:latest
-    container_name: astrbot-registry-s3-dev
+    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:latest}
+    container_name: ${SEAWEEDFS_CONTAINER_NAME:-astrbot-registry-dev-seaweedfs}
     restart: unless-stopped
-    command: server -s3 -s3.config=/etc/seaweedfs/s3.json -dir=/data
+    command: server -s3 -s3.iam=false -s3.config=/etc/seaweedfs/s3.json -dir=/data
     environment:
       WEED_S3_CONFIG: /etc/seaweedfs/s3.json
     volumes:
       - s3_data:/data
       - ./s3.json:/etc/seaweedfs/s3.json:ro
     ports:
-      - "8333:8333"   # S3 API
-      - "8888:8888"   # Filer UI
-      - "9333:9333"   # Master UI
-    mem_limit: 256m
-    cpus: "0.5"
+      - "${S3_PORT:-8333}:8333"         # S3 API
+      - "${S3_FILER_PORT:-8888}:8888"   # Filer UI
+      - "${S3_MASTER_PORT:-9333}:9333"  # Master UI
+    mem_limit: ${S3_MEM_LIMIT:-256m}
+    cpus: "${S3_CPUS:-0.5}"
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8333/"]
+      test: ["CMD-SHELL", "wget -q --spider http://$$(hostname -i | awk '{print $$1}'):9333/"]
       interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
   pg_data:
+    name: ${PG_VOLUME_NAME:-astrbot-registry-dev-pg-data}
   redis_data:
+    name: ${REDIS_VOLUME_NAME:-astrbot-registry-dev-redis-data}
   s3_data:
+    name: ${S3_VOLUME_NAME:-astrbot-registry-dev-s3-data}

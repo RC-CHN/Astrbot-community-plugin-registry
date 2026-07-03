@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from ..cache import get_redis
 from ..config import settings
-from ..models import Plugin, PluginVersion
+from ..models import Plugin, PluginVersion, PluginVersionStat
 from ..services.plugin_service import scan_passed
 
 CACHE_KEY = "registry_json"
@@ -87,9 +87,13 @@ async def get_stats(db: AsyncSession) -> dict[str, Any]:
         .where(Plugin.status == "active")
         .where(PluginVersion.version_status == "active")
     )
+    total_downloads = await db.scalar(select(func.coalesce(func.sum(PluginVersionStat.download_count), 0)))
+    total_installs = await db.scalar(select(func.coalesce(func.sum(PluginVersionStat.install_count), 0)))
     return {
         "total_plugins": total_plugins or 0,
         "total_active_versions": total_versions or 0,
+        "total_downloads": total_downloads or 0,
+        "total_installs": total_installs or 0,
     }
 
 

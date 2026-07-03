@@ -17,7 +17,7 @@ from ..services.registry_service import (
     get_stats,
 )
 from ..services.s3_service import build_public_url
-from ..services.stats_service import increment_download_count
+from ..services.stats_service import increment_download_count, increment_install_count
 
 public_router = APIRouter(tags=["public"])
 
@@ -70,6 +70,18 @@ async def download_plugin(plugin_key: str, db: AsyncSession = Depends(get_db)) -
         raise HTTPException(status_code=404, detail="No active version available")
     await increment_download_count(db, latest.id)
     return RedirectResponse(url=latest.download_url)
+
+
+@public_router.post("/plugin/{plugin_key}/install")
+async def record_install(plugin_key: str, db: AsyncSession = Depends(get_db)) -> dict:
+    plugin = await get_plugin_by_key(db, plugin_key)
+    if plugin is None:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+    latest = await get_latest_version(db, plugin.id)
+    if latest is None:
+        raise HTTPException(status_code=404, detail="No active version available")
+    await increment_install_count(db, latest.id)
+    return {"status": "recorded"}
 
 
 @public_router.get("/plugins/search")

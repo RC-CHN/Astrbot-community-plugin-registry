@@ -31,11 +31,17 @@ class Settings(BaseSettings):
     s3_public_url: str = "http://localhost:8333/astrbot-plugins"
     s3_region: str = "us-east-1"
     s3_auto_create_bucket: bool = True
+    s3_connect_timeout: int = 3
+    s3_read_timeout: int = 10
+    s3_max_attempts: int = 2
 
     # Redis
     redis_url: str | None = "redis://localhost:6379"
     redis_cache_ttl: int = 3600
     redis_task_queue_key: str = "registry_tasks"
+    redis_task_dead_letter_queue_key: str = "registry_tasks_dead"
+    task_max_attempts: int = 3
+    task_retry_delay_seconds: int = 5
 
     # JWT
     jwt_secret: str = "change-me-in-production"

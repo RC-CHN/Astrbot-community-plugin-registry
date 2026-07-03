@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 from typing import Sequence
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -21,6 +21,19 @@ async def get_plugin(db: AsyncSession, plugin_id: uuid.UUID) -> Plugin | None:
 
 async def get_plugin_by_key(db: AsyncSession, plugin_key: str) -> Plugin | None:
     result = await db.execute(select(Plugin).where(Plugin.plugin_key == plugin_key))
+    return result.scalar_one_or_none()
+
+
+async def get_plugin_with_details(db: AsyncSession, plugin_id: uuid.UUID) -> Plugin | None:
+    result = await db.execute(
+        select(Plugin)
+        .where(Plugin.id == plugin_id)
+        .options(
+            selectinload(Plugin.tags),
+            selectinload(Plugin.i18n_entries),
+            selectinload(Plugin.versions).selectinload(PluginVersion.scan),
+        )
+    )
     return result.scalar_one_or_none()
 
 
@@ -112,6 +125,12 @@ async def set_plugin_status(
     if plugin is None:
         raise NotFoundError("Plugin not found")
     plugin.status = status
+    if status in {"disabled", "deleted"}:
+        await db.execute(
+            update(PluginVersion)
+            .where(PluginVersion.plugin_id == plugin_id)
+            .values(is_latest=False)
+        )
     await db.commit()
     await db.refresh(plugin)
     await _refresh_registry_cache(db)
@@ -123,6 +142,11 @@ async def delete_plugin(db: AsyncSession, plugin_id: uuid.UUID) -> Plugin:
     if plugin is None:
         raise NotFoundError("Plugin not found")
     plugin.status = "deleted"
+    await db.execute(
+        update(PluginVersion)
+        .where(PluginVersion.plugin_id == plugin_id)
+        .values(is_latest=False, version_status="deleted")
+    )
     await db.commit()
     await db.refresh(plugin)
     await _refresh_registry_cache(db)
@@ -202,6 +226,17 @@ async def set_version_status(
     version = await get_version(db, version_id)
     if version is None:
         raise NotFoundError("Version not found")
+    if status == "active":
+        if version.build_status != "success":
+            raise InvalidStateError("Version build must be successful before activation")
+        result = await db.execute(
+            select(PluginVersion)
+            .where(PluginVersion.id == version_id)
+            .options(selectinload(PluginVersion.scan))
+        )
+        version = result.scalar_one()
+        if not scan_passed(version):
+            raise InvalidStateError("Version security scan must pass before activation")
     version.version_status = status
     if status in {"draft", "deprecated", "deleted"}:
         version.is_latest = False
@@ -262,9 +297,45 @@ async def list_versions(
     result = await db.execute(
         select(PluginVersion)
         .where(PluginVersion.plugin_id == plugin_id)
+        .options(selectinload(PluginVersion.scan))
         .order_by(PluginVersion.created_at.desc())
     )
     return result.scalars().all()
+
+
+async def list_plugins(
+    db: AsyncSession,
+    *,
+    status: str | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> tuple[Sequence[Plugin], int]:
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    filters = []
+    if status:
+        filters.append(Plugin.status == status)
+    if q:
+        like = f"%{q.strip()}%"
+        filters.append(
+            or_(
+                Plugin.plugin_key.ilike(like),
+                Plugin.display_name.ilike(like),
+                Plugin.description.ilike(like),
+                Plugin.author.ilike(like),
+            )
+        )
+
+    base = select(Plugin).where(*filters)
+    total = await db.scalar(select(func.count()).select_from(base.subquery()))
+    result = await db.execute(
+        base.options(selectinload(Plugin.tags), selectinload(Plugin.versions))
+        .order_by(Plugin.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return result.scalars().unique().all(), total or 0
 
 
 async def list_active_plugins_with_versions(

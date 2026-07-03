@@ -25,13 +25,22 @@ from ..database import async_session
 from ..models import Plugin, User, WebhookEvent
 from ..schemas.admin import (
     LoginRequest,
+    AdminStatsResponse,
     ConfigUpdate,
+    PluginDetail,
     PluginCreateRequest,
+    PluginListResponse,
     PluginStatusUpdate,
+    PluginSubmitResponse,
+    PluginSummary,
     SetLatestRequest,
+    StatusResponse,
     TokenResponse,
     UserCreate,
+    UserResponse,
     VersionCreate,
+    VersionSubmitResponse,
+    VersionSummary,
     VersionStatusUpdate,
 )
 from ..services.auth_service import authenticate_user, create_access_token, get_password_hash
@@ -42,6 +51,8 @@ from ..services.plugin_service import (
     create_version_from_upload,
     delete_plugin,
     get_plugin,
+    get_plugin_with_details,
+    list_plugins,
     list_versions,
     set_latest_version,
     set_plugin_status,
@@ -61,6 +72,45 @@ from ..utils.zip_utils import (
 )
 
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _version_summary(version) -> dict:
+    scan = version.scan
+    return {
+        "id": str(version.id),
+        "version": version.version,
+        "source_type": version.source_type,
+        "commit_sha": version.commit_sha,
+        "build_status": version.build_status,
+        "build_log": version.build_log,
+        "version_status": version.version_status,
+        "is_latest": version.is_latest,
+        "download_url": version.download_url,
+        "file_size": version.file_size,
+        "created_at": version.created_at,
+        "updated_at": version.updated_at,
+        "scan": {
+            "virustotal": {"pass": scan.virustotal_pass, "msg": scan.virustotal_msg},
+            "llm_agent": {"pass": scan.llm_agent_pass, "msg": scan.llm_agent_msg},
+            "scanned_at": scan.scanned_at.isoformat() if scan.scanned_at else None,
+        }
+        if scan
+        else None,
+    }
+
+
+def _plugin_summary(plugin) -> dict:
+    return {
+        "id": str(plugin.id),
+        "plugin_key": plugin.plugin_key,
+        "display_name": plugin.display_name,
+        "author": plugin.author,
+        "status": plugin.status,
+        "category": plugin.category,
+        "version_count": len(plugin.versions),
+        "created_at": plugin.created_at,
+        "updated_at": plugin.updated_at,
+    }
 
 
 async def _build_version_task(
@@ -165,7 +215,7 @@ async def login(
     return {"access_token": token, "token_type": "bearer"}
 
 
-@admin_router.post("/bootstrap")
+@admin_router.post("/bootstrap", response_model=UserResponse)
 async def bootstrap_user(
     data: UserCreate,
     db: AsyncSession = Depends(get_db),
@@ -180,7 +230,7 @@ async def bootstrap_user(
     return {"id": str(user.id), "username": user.username, "role": user.role}
 
 
-@admin_router.post("/users")
+@admin_router.post("/users", response_model=UserResponse)
 async def create_user_endpoint(
     data: UserCreate,
     db: AsyncSession = Depends(get_db),
@@ -190,7 +240,27 @@ async def create_user_endpoint(
     return {"id": str(user.id), "username": user.username, "role": user.role}
 
 
-@admin_router.post("/plugins")
+@admin_router.get("/plugins", response_model=PluginListResponse)
+async def list_plugins_endpoint(
+    status: str | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    plugins, total = await list_plugins(db, status=status, q=q, page=page, page_size=page_size)
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    return {
+        "items": [_plugin_summary(plugin) for plugin in plugins],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@admin_router.post("/plugins", response_model=PluginSubmitResponse)
 async def submit_plugin(
     request: PluginCreateRequest,
     background_tasks: BackgroundTasks,
@@ -225,7 +295,7 @@ async def submit_plugin(
     return {"plugin_id": str(plugin.id), "version": version, "status": "queued"}
 
 
-@admin_router.post("/plugins/upload")
+@admin_router.post("/plugins/upload", response_model=VersionSubmitResponse)
 async def upload_plugin(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -257,7 +327,37 @@ async def upload_plugin(
     return {"plugin_id": str(plugin.id), "version_id": str(version.id)}
 
 
-@admin_router.put("/plugins/{plugin_id}")
+@admin_router.get("/plugins/pending", response_model=list[PluginSummary])
+async def pending_plugins(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> list:
+    plugins, _ = await list_plugins(db, status="pending", page=1, page_size=100)
+    return [_plugin_summary(plugin) for plugin in plugins]
+
+
+@admin_router.get("/plugins/{plugin_id}", response_model=PluginDetail)
+async def get_plugin_endpoint(
+    plugin_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    plugin = await get_plugin_with_details(db, uuid.UUID(plugin_id))
+    if plugin is None:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+    return {
+        **_plugin_summary(plugin),
+        "description": plugin.description,
+        "repo_url": plugin.repo_url,
+        "social_link": plugin.social_link,
+        "tags": [tag.name for tag in plugin.tags],
+        "support_platforms": plugin.support_platforms or [],
+        "astrbot_version": plugin.astrbot_version,
+        "versions": [_version_summary(version) for version in plugin.versions],
+    }
+
+
+@admin_router.put("/plugins/{plugin_id}", response_model=dict)
 async def update_plugin_endpoint(
     plugin_id: str,
     data: dict,
@@ -273,7 +373,7 @@ async def update_plugin_endpoint(
     return {"plugin_id": str(updated.id), "plugin_key": updated.plugin_key}
 
 
-@admin_router.delete("/plugins/{plugin_id}")
+@admin_router.delete("/plugins/{plugin_id}", response_model=StatusResponse)
 async def delete_plugin_endpoint(
     plugin_id: str,
     db: AsyncSession = Depends(get_db),
@@ -283,30 +383,17 @@ async def delete_plugin_endpoint(
     return {"status": "deleted"}
 
 
-@admin_router.get("/plugins/{plugin_id}/versions")
+@admin_router.get("/plugins/{plugin_id}/versions", response_model=list[VersionSummary])
 async def list_versions_endpoint(
     plugin_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_reviewer),
 ) -> list:
     versions = await list_versions(db, uuid.UUID(plugin_id))
-    return [
-        {
-            "id": str(v.id),
-            "version": v.version,
-            "source_type": v.source_type,
-            "commit_sha": v.commit_sha,
-            "build_status": v.build_status,
-            "version_status": v.version_status,
-            "is_latest": v.is_latest,
-            "download_url": v.download_url,
-            "created_at": v.created_at.isoformat() if v.created_at else None,
-        }
-        for v in versions
-    ]
+    return [_version_summary(v) for v in versions]
 
 
-@admin_router.post("/plugins/{plugin_id}/versions")
+@admin_router.post("/plugins/{plugin_id}/versions", response_model=VersionSubmitResponse)
 async def create_version_from_repo(
     plugin_id: str,
     request: VersionCreate,
@@ -331,7 +418,7 @@ async def create_version_from_repo(
     return {"plugin_id": plugin_id, "version": request.version, "status": "queued"}
 
 
-@admin_router.post("/plugins/{plugin_id}/versions/upload")
+@admin_router.post("/plugins/{plugin_id}/versions/upload", response_model=VersionSubmitResponse)
 async def upload_version(
     plugin_id: str,
     background_tasks: BackgroundTasks,
@@ -362,7 +449,7 @@ async def upload_version(
     return {"version_id": str(pv.id)}
 
 
-@admin_router.put("/plugins/{plugin_id}/versions/{version_id}/latest")
+@admin_router.put("/plugins/{plugin_id}/versions/{version_id}/latest", response_model=StatusResponse)
 async def set_latest(
     plugin_id: str,
     version_id: str,
@@ -376,7 +463,7 @@ async def set_latest(
     return {"status": "updated"}
 
 
-@admin_router.put("/plugins/{plugin_id}/versions/{version_id}/status")
+@admin_router.put("/plugins/{plugin_id}/versions/{version_id}/status", response_model=StatusResponse)
 async def update_version_status(
     plugin_id: str,
     version_id: str,
@@ -388,7 +475,7 @@ async def update_version_status(
     return {"status": "updated"}
 
 
-@admin_router.post("/plugins/{plugin_id}/build")
+@admin_router.post("/plugins/{plugin_id}/build", response_model=StatusResponse)
 async def trigger_build(
     plugin_id: str,
     request: VersionCreate,
@@ -413,7 +500,7 @@ async def trigger_build(
     return {"status": "queued"}
 
 
-@admin_router.post("/plugins/{plugin_id}/scan")
+@admin_router.post("/plugins/{plugin_id}/scan", response_model=StatusResponse)
 async def trigger_scan(
     plugin_id: str,
     version_id: str,
@@ -425,7 +512,7 @@ async def trigger_scan(
     return {"status": "queued"}
 
 
-@admin_router.put("/plugins/{plugin_id}/status")
+@admin_router.put("/plugins/{plugin_id}/status", response_model=StatusResponse)
 async def update_plugin_status(
     plugin_id: str,
     request: PluginStatusUpdate,
@@ -436,27 +523,7 @@ async def update_plugin_status(
     return {"status": "updated"}
 
 
-@admin_router.get("/plugins/pending")
-async def pending_plugins(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_reviewer),
-) -> list:
-    result = await db.execute(select(Plugin).where(Plugin.status == "pending"))
-    plugins = result.scalars().all()
-    return [
-        {
-            "id": str(p.id),
-            "plugin_key": p.plugin_key,
-            "display_name": p.display_name,
-            "author": p.author,
-            "status": p.status,
-            "created_at": p.created_at.isoformat() if p.created_at else None,
-        }
-        for p in plugins
-    ]
-
-
-@admin_router.get("/stats")
+@admin_router.get("/stats", response_model=AdminStatsResponse)
 async def admin_stats(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin),
@@ -485,7 +552,7 @@ async def update_config_endpoint(
     return {"values": await update_config(db, request.values)}
 
 
-@admin_router.post("/cache/refresh")
+@admin_router.post("/cache/refresh", response_model=StatusResponse)
 async def refresh_cache_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin),
@@ -494,7 +561,7 @@ async def refresh_cache_endpoint(
     return {"status": "refreshed"}
 
 
-@admin_router.post("/webhooks/github")
+@admin_router.post("/webhooks/github", response_model=StatusResponse)
 async def github_webhook(
     request: Request,
     background_tasks: BackgroundTasks,

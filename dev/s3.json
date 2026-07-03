@@ -1,4 +1,5 @@
 {
+  "signingKey": "dev-only-astrbot-registry-signing-key",
   "identities": [
     {
       "name": "admin",

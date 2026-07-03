@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_initial_migration_contains_core_tables() -> None:
-    migration = Path("alembic/versions/0001_initial_registry_schema.py")
+    migration = Path(__file__).resolve().parents[1] / "alembic/versions/0001_initial_registry_schema.py"
     content = migration.read_text(encoding="utf-8")
 
     for table_name in [
