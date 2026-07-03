@@ -8,8 +8,9 @@
 .page-toolbar {
   align-items: center;
   background: var(--surface);
-  border: 1px solid var(--divider);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-sm);
   display: flex;
   gap: 8px;
   margin-bottom: 12px;

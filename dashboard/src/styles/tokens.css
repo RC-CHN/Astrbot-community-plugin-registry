@@ -1,12 +1,42 @@
 :root {
-  --page-bg: #f6f7f9;
+  /* Page & surfaces */
+  --page-bg: #f6f8fa;
   --surface: #ffffff;
+  --surface-hover: #f3f4f6;
+  --hover-bg: #f6f8fa;
+
+  /* Text */
   --text-primary: #1f2328;
-  --text-secondary: #667085;
-  --border: #d9dee7;
-  --divider: #edf0f4;
-  --success-bg: #ecfdf3;
-  --warning-bg: #fffaeb;
-  --error-bg: #fef3f2;
-  --info-bg: #eff6ff;
+  --text-secondary: #656d76;
+  --text-tertiary: #6e7781;
+  --text-link: #0969da;
+
+  /* Borders & dividers */
+  --border: #d0d7de;
+  --border-muted: #d8dee4;
+  --divider: #eaeef2;
+
+  /* Accent */
+  --accent: #0969da;
+  --accent-hover: #0860ca;
+  --accent-pressed: #0550ae;
+
+  /* Status: muted background + foreground (GitHub label style) */
+  --success-bg: #dafbe1;
+  --success-fg: #1a7f37;
+  --warning-bg: #fff8c5;
+  --warning-fg: #9a6700;
+  --error-bg: #ffebe9;
+  --error-fg: #cf222e;
+  --info-bg: #ddf4ff;
+  --info-fg: #0969da;
+  --neutral-bg: #eaeef2;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 0 rgba(31, 35, 40, 0.04);
+  --shadow-md: 0 3px 6px rgba(140, 149, 159, 0.15);
 }

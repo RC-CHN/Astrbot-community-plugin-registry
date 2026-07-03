@@ -51,16 +51,17 @@
         </dl>
 
         <publish-blocker-alert :blockers="blockers" />
-        <version-table
-          v-if="plugin.versions.length"
-          :plugin="plugin"
-          :versions="plugin.versions"
-          @set-version-status="setVersionStatus"
-          @set-latest="setLatest"
-          @rescan="rescanVersion"
-          @run-scan-provider="runScanProvider"
-          @skip-scan-provider="skipScanProvider"
-        />
+        <div v-if="plugin.versions.length" class="version-table-wrap">
+          <version-table
+            :plugin="plugin"
+            :versions="plugin.versions"
+            @set-version-status="setVersionStatus"
+            @set-latest="setLatest"
+            @rescan="rescanVersion"
+            @run-scan-provider="runScanProvider"
+            @skip-scan-provider="skipScanProvider"
+          />
+        </div>
 
         <div class="action-bar">
           <n-button @click="router.push(`/plugins/${plugin.id}`)">打开详情</n-button>
@@ -247,15 +248,18 @@ function reviewStatusLabel(status: string) {
 .review-layout {
   display: grid;
   gap: 16px;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  min-width: 0;
 }
 
 .review-list,
 .workbench {
   background: var(--surface);
-  border: 1px solid var(--divider);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-sm);
   min-height: 560px;
+  min-width: 0;
   padding: 12px;
 }
 
@@ -275,8 +279,8 @@ function reviewStatusLabel(status: string) {
 
 .review-item.active,
 .review-item:hover {
-  background: #f8fafc;
-  border-color: var(--divider);
+  background: var(--hover-bg);
+  border-color: var(--border-muted);
 }
 
 .workbench {
@@ -287,7 +291,10 @@ function reviewStatusLabel(status: string) {
 .workbench-header {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: space-between;
+  min-width: 0;
 }
 
 .meta {
@@ -303,14 +310,33 @@ function reviewStatusLabel(status: string) {
 
 .meta dd {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.version-table-wrap {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .action-bar {
   align-items: center;
   border-top: 1px solid var(--divider);
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
   padding-top: 12px;
+}
+
+@media (max-width: 1180px) {
+  .review-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .review-list {
+    min-height: auto;
+  }
 }
 </style>

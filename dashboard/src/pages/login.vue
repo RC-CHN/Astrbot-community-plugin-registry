@@ -58,8 +58,9 @@ async function handleLogin() {
 <style scoped>
 .login-panel {
   background: var(--surface);
-  border: 1px solid var(--divider);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
   display: grid;
   gap: 18px;
   padding: 28px;

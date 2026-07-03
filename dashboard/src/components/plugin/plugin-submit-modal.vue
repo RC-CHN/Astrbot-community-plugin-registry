@@ -135,7 +135,7 @@ function reset() {
 
 .repo-url-input :deep(.n-input__input-el),
 .repo-url-preview {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .repo-url-input :deep(.n-input__input-el) {

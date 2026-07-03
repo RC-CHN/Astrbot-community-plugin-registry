@@ -223,8 +223,9 @@ function reviewStatusLabel(status: string) {
 
 .panel {
   background: var(--surface);
-  border: 1px solid var(--divider);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-sm);
   padding: 16px;
 }
 
@@ -251,8 +252,9 @@ dd {
 
 .tabs {
   background: var(--surface);
-  border: 1px solid var(--divider);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-sm);
   margin-top: 16px;
   padding: 12px;
 }

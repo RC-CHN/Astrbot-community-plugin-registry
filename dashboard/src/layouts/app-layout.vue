@@ -112,6 +112,7 @@ function handleUserAction(key: string) {
 
 .brand {
   align-items: center;
+  border-bottom: 1px solid var(--divider);
   display: flex;
   font-size: 15px;
   font-weight: 650;
@@ -135,6 +136,8 @@ function handleUserAction(key: string) {
 }
 
 .content {
+  min-width: 0;
+  overflow: auto;
   padding: 24px;
 }
 </style>

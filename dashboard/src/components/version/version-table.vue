@@ -4,6 +4,7 @@
     :data="versions"
     :pagination="false"
     :row-key="rowKey"
+    :scroll-x="1120"
     size="small"
   />
 </template>
@@ -97,7 +98,7 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
     title: '操作',
     key: 'actions',
     align: 'right',
-    width: 360,
+    width: 300,
     render(row) {
       const activeCheck = canActivateVersion(row)
       const latestBlockers = getVersionBlockers(props.plugin, row)
@@ -166,13 +167,13 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
         { default: () => '设为 latest' },
       )
       return h('div', { class: 'version-actions' }, [
-        h(NButtonGroup, null, {
+        h(NButtonGroup, { class: 'version-action-group' }, {
           default: () => [
             activeCheck.ok ? activeButton : withTooltip(activeButton, activeCheck.reason),
             latestBlockers.length ? withTooltip(latestButton, latestBlockers.join('；')) : latestButton,
           ],
         }),
-        h(NButtonGroup, null, {
+        h(NButtonGroup, { class: 'version-action-group' }, {
           default: () => [
             !row.download_url ? withTooltip(scanButton, '没有可扫描的构建产物') : scanButton,
             !row.download_url ? withTooltip(vtScanButton, '没有可扫描的构建产物') : vtScanButton,
@@ -241,6 +242,14 @@ function passLabel(value: boolean | null) {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+}
+
+.version-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 4px;
 }
 
 .scan-tooltip {
