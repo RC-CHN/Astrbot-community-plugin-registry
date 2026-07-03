@@ -46,11 +46,14 @@ from ..services.auth_service import authenticate_user, create_access_token, get_
 from ..services.build_service import build_from_repo
 from ..services.config_service import list_config_response, update_config
 from ..services.plugin_service import (
+    assert_metadata_matches_plugin,
     create_plugin,
     create_version_from_upload,
     delete_plugin,
     get_plugin,
+    get_plugin_by_key,
     get_plugin_with_details,
+    get_version_by_plugin_and_number,
     list_plugins,
     list_versions,
     set_latest_version,
@@ -68,8 +71,9 @@ from ..services.runtime_config import (
 )
 from ..services.scan_service import scan_version
 from ..services.task_queue import enqueue_task
+from ..services.errors import ConflictError
 from ..utils.git_utils import GitError, clone_repo, get_metadata_path, temp_repo_dir
-from ..utils.metadata_parser import parse_metadata_yaml
+from ..utils.metadata_parser import infer_plugin_key, parse_metadata_yaml
 from ..utils.zip_utils import (
     ZipValidationError,
     find_metadata_yaml,
@@ -291,13 +295,19 @@ async def submit_plugin(
     except (GitError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    plugin = await create_plugin(
-        db,
-        metadata,
-        request.repo_url,
-        created_by=current_user.id,
-    )
+    plugin = await get_plugin_by_key(db, infer_plugin_key(metadata.name))
+    if plugin is None:
+        plugin = await create_plugin(
+            db,
+            metadata,
+            request.repo_url,
+            created_by=current_user.id,
+        )
+    else:
+        assert_metadata_matches_plugin(metadata, plugin)
     version = request.version or metadata.version
+    if await get_version_by_plugin_and_number(db, plugin.id, version):
+        raise ConflictError(f"Version {version} already exists for plugin {plugin.plugin_key}")
 
     await _enqueue_or_fallback(
         background_tasks,

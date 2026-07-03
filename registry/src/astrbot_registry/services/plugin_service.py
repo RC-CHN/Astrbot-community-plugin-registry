@@ -42,6 +42,19 @@ async def get_version(db: AsyncSession, version_id: uuid.UUID) -> PluginVersion 
     return await db.get(PluginVersion, version_id)
 
 
+async def get_version_by_plugin_and_number(
+    db: AsyncSession,
+    plugin_id: uuid.UUID,
+    version: str,
+) -> PluginVersion | None:
+    result = await db.execute(
+        select(PluginVersion)
+        .where(PluginVersion.plugin_id == plugin_id)
+        .where(PluginVersion.version == version)
+    )
+    return result.scalar_one_or_none()
+
+
 async def get_latest_version(db: AsyncSession, plugin_id: uuid.UUID) -> PluginVersion | None:
     result = await db.execute(
         select(PluginVersion)
