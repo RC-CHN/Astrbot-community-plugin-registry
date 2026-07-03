@@ -107,7 +107,8 @@ function handleUserAction(key: string) {
 
 <style scoped>
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .brand {
@@ -136,6 +137,8 @@ function handleUserAction(key: string) {
 }
 
 .content {
+  flex: 1;
+  min-height: 0;
   min-width: 0;
   overflow: auto;
   padding: 24px;

@@ -260,7 +260,7 @@ function reviewStatusLabel(status: string) {
   box-shadow: var(--shadow-sm);
   min-height: 560px;
   min-width: 0;
-  padding: 12px;
+  padding: 20px;
 }
 
 .review-item {
