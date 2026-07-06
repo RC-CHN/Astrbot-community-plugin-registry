@@ -219,3 +219,4 @@ __marimo__/
 .rcoder/
 docs/design.md
 dashboard/node_modules/
+acprctl/acprctl
