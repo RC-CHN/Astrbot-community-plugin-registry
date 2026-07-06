@@ -34,6 +34,32 @@ The backend runs database migrations and bootstraps the admin user on startup.
 The worker consumes build/scan queues from Redis. The dashboard serves the built
 SPA and proxies `/api/`, `/docs`, `/redoc` to the backend and `/s3/` to SeaweedFS.
 
+## Public deployment checklist
+
+Do not expose the stack with the development defaults. For public access, set
+`DEPLOYMENT_MODE=production`; the backend will refuse to start until unsafe
+defaults are replaced.
+
+Required production changes:
+
+- Set a random `JWT_SECRET` of at least 32 characters.
+- Change `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `PG_PASSWORD`, and
+  `BOOTSTRAP_ADMIN_PASSWORD`.
+- Set `TRUSTED_HOSTS` to the public domain/IP, for example
+  `registry.example.com`, and set `HEALTHCHECK_HOST` to one trusted host.
+- Set `DOCS_ENABLED=false` and keep `BOOTSTRAP_API_ENABLED=false`.
+- Choose the scan policy deliberately. `SCAN_PASS_WHEN_UNCONFIGURED=false`
+  enforces configured scan providers before publish. Keeping it `true` is useful
+  when automated scans are too costly, but then reviewers must treat scan results
+  as advisory/manual-gated rather than a hard security control.
+- Keep `GITHUB_WEBHOOK_REQUIRE_SECRET=true` and configure
+  `GITHUB_WEBHOOK_SECRET` before enabling GitHub webhooks.
+- Terminate TLS at the public reverse proxy. If this nginx container is the TLS
+  endpoint, set `HSTS_ENABLED=true`; otherwise add HSTS at the outer proxy.
+
+The bundled nginx only exposes plugin objects under `/s3/<bucket>/plugins/` with
+`GET`/`HEAD`. It intentionally does not expose SeaweedFS as a public S3 API.
+
 ## Host-based development
 
 If you still want to run the API/worker on the host for faster edit/test cycles,

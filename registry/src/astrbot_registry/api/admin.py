@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..api.deps import get_current_admin, get_current_reviewer, get_db
+from ..config import settings
 from ..database import async_session
 from ..models import Plugin, User, WebhookEvent
 from ..schemas.admin import (
@@ -66,6 +67,7 @@ from ..services.runtime_config import (
     runtime_webhook_secret,
 )
 from ..services.scan_service import mark_scan_pending, mark_scan_skipped, scan_version
+from ..services.security_service import login_rate_limit_keys, login_rate_limiter
 from ..services.submit_service import submit_repo
 from ..services.task_queue import enqueue_task
 from ..utils.git_utils import parse_github_url
@@ -233,15 +235,32 @@ async def create_user(db: AsyncSession, data: UserCreate) -> User:
 
 @admin_router.post("/login", response_model=TokenResponse)
 async def login(
+    request: Request,
     data: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    rate_limit_keys = login_rate_limit_keys(request, data.username)
+    if settings.login_rate_limit_enabled:
+        retry_after = max(login_rate_limiter.retry_after(key) for key in rate_limit_keys)
+        if retry_after > 0:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many login attempts",
+                headers={"Retry-After": str(retry_after)},
+            )
+
     user = await authenticate_user(db, data.username, data.password)
     if user is None:
+        if settings.login_rate_limit_enabled:
+            for key in rate_limit_keys:
+                login_rate_limiter.record_failure(key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
+    if settings.login_rate_limit_enabled:
+        for key in rate_limit_keys:
+            login_rate_limiter.record_success(key)
     token = create_access_token(user.id)
     return {"access_token": token, "token_type": "bearer"}
 
@@ -251,6 +270,11 @@ async def bootstrap_user(
     data: UserCreate,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    if not settings.bootstrap_api_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bootstrap API is disabled",
+        )
     count = await db.scalar(select(func.count(User.id)))
     if count and count > 0:
         raise HTTPException(
@@ -633,6 +657,9 @@ async def github_webhook(
     async with async_session() as db:
         webhook_secret = await runtime_webhook_secret(db)
         webhook_auto_version = await runtime_webhook_auto_version(db)
+
+    if settings.github_webhook_require_secret and not webhook_secret:
+        raise HTTPException(status_code=503, detail="GitHub webhook secret is not configured")
 
     if webhook_secret:
         signature = request.headers.get("X-Hub-Signature-256", "")

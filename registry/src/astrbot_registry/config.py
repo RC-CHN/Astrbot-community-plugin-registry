@@ -13,10 +13,18 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # App
+    deployment_mode: str = "development"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     app_reload: bool = True
     log_level: str = "info"
+    docs_enabled: bool = True
+    trusted_hosts: Annotated[list[str], NoDecode] = ["*"]
+    cors_allow_origins: Annotated[list[str], NoDecode] = []
+    security_headers_enabled: bool = True
+    hsts_enabled: bool = False
+    hsts_max_age_seconds: int = 31536000
+    bootstrap_api_enabled: bool = False
     public_cache_max_age: int = 60
     bootstrap_admin_username: str = ""
     bootstrap_admin_password: str = ""
@@ -53,6 +61,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60 * 24  # 1 day
     jwt_refresh_token_expire_minutes: int = 60 * 24 * 7  # 7 days
+    login_rate_limit_enabled: bool = True
+    login_rate_limit_attempts: int = 5
+    login_rate_limit_window_seconds: int = 300
+    login_rate_limit_block_seconds: int = 900
 
     # Security scans
     virustotal_api_key: str = ""
@@ -82,6 +94,7 @@ class Settings(BaseSettings):
 
     # Webhooks
     github_webhook_secret: str = ""
+    github_webhook_require_secret: bool = True
 
     # S3 object layout
     s3_plugins_prefix: str = "plugins"
@@ -92,7 +105,7 @@ class Settings(BaseSettings):
         "env_file_encoding": "utf-8",
     }
 
-    @field_validator("git_allowed_hosts", mode="before")
+    @field_validator("git_allowed_hosts", "trusted_hosts", "cors_allow_origins", mode="before")
     @classmethod
     def parse_csv_list(cls, value):
         if isinstance(value, str):

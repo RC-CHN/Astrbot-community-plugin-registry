@@ -27,3 +27,16 @@ def test_settings_parse_allowed_git_hosts_csv() -> None:
     settings = Settings(git_allowed_hosts="github.com,git.example.com")
 
     assert settings.git_allowed_hosts == ["github.com", "git.example.com"]
+
+
+def test_settings_parse_security_csv_lists() -> None:
+    settings = Settings(
+        trusted_hosts="registry.example.com,api.example.com",
+        cors_allow_origins="https://registry.example.com,https://admin.example.com",
+    )
+
+    assert settings.trusted_hosts == ["registry.example.com", "api.example.com"]
+    assert settings.cors_allow_origins == [
+        "https://registry.example.com",
+        "https://admin.example.com",
+    ]

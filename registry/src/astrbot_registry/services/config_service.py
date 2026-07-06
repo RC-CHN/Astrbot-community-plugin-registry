@@ -81,6 +81,7 @@ def build_config_response(values: dict[str, str]) -> dict:
 
 def deployment_values() -> dict[str, str]:
     return {
+        "DEPLOYMENT_MODE": settings.deployment_mode,
         "DATABASE_URL": _mask_url_secret(settings.database_url),
         "REDIS_URL": _mask_url_secret(settings.redis_url or ""),
         "S3_ENDPOINT": settings.s3_endpoint,
@@ -93,6 +94,14 @@ def deployment_values() -> dict[str, str]:
         "APP_HOST": settings.app_host,
         "APP_PORT": str(settings.app_port),
         "APP_RELOAD": str(settings.app_reload),
+        "DOCS_ENABLED": str(settings.docs_enabled),
+        "TRUSTED_HOSTS": ",".join(settings.trusted_hosts),
+        "CORS_ALLOW_ORIGINS": ",".join(settings.cors_allow_origins),
+        "SECURITY_HEADERS_ENABLED": str(settings.security_headers_enabled),
+        "HSTS_ENABLED": str(settings.hsts_enabled),
+        "BOOTSTRAP_API_ENABLED": str(settings.bootstrap_api_enabled),
+        "GITHUB_WEBHOOK_REQUIRE_SECRET": str(settings.github_webhook_require_secret),
+        "LOGIN_RATE_LIMIT_ENABLED": str(settings.login_rate_limit_enabled),
         "LOG_LEVEL": settings.log_level,
     }
 

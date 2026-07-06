@@ -7,8 +7,8 @@ from typing import Literal
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=1, max_length=1024)
 
 
 class TokenResponse(BaseModel):
@@ -18,7 +18,7 @@ class TokenResponse(BaseModel):
 
 class UserCreate(BaseModel):
     username: str = Field(..., max_length=100)
-    password: str
+    password: str = Field(..., min_length=12, max_length=1024)
     role: Literal["admin", "reviewer"] = "reviewer"
 
 

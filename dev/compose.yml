@@ -3,10 +3,18 @@
 name: ${COMPOSE_PROJECT_NAME:-astrbot-registry-dev}
 
 x-backend-env: &backend-env
+  DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-development}
   APP_HOST: 0.0.0.0
   APP_PORT: 8000
   APP_RELOAD: "false"
   LOG_LEVEL: ${LOG_LEVEL:-info}
+  DOCS_ENABLED: ${DOCS_ENABLED:-true}
+  TRUSTED_HOSTS: "${TRUSTED_HOSTS:-*}"
+  CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
+  SECURITY_HEADERS_ENABLED: ${SECURITY_HEADERS_ENABLED:-true}
+  HSTS_ENABLED: ${HSTS_ENABLED:-false}
+  BOOTSTRAP_API_ENABLED: ${BOOTSTRAP_API_ENABLED:-false}
+  HEALTHCHECK_HOST: ${HEALTHCHECK_HOST:-localhost}
   DATABASE_URL: postgresql+asyncpg://${PG_USER:-astrbot}:${PG_PASSWORD:-astrbot_secret}@postgres:5432/${PG_DATABASE:-astrbot_registry}
   DATABASE_AUTO_MIGRATE: "true"
   REDIS_URL: redis://redis:6379
@@ -19,6 +27,10 @@ x-backend-env: &backend-env
   S3_AUTO_CREATE_BUCKET: "true"
   JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
   JWT_ALGORITHM: HS256
+  LOGIN_RATE_LIMIT_ENABLED: ${LOGIN_RATE_LIMIT_ENABLED:-true}
+  LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-5}
+  LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+  LOGIN_RATE_LIMIT_BLOCK_SECONDS: ${LOGIN_RATE_LIMIT_BLOCK_SECONDS:-900}
   BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
   BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-admin123456}
   BOOTSTRAP_ADMIN_ROLE: admin
@@ -28,6 +40,7 @@ x-backend-env: &backend-env
   LLM_AGENT_MODEL: ${LLM_AGENT_MODEL:-}
   LLM_AGENT_API_KEY: ${LLM_AGENT_API_KEY:-}
   SCAN_PASS_WHEN_UNCONFIGURED: ${SCAN_PASS_WHEN_UNCONFIGURED:-true}
+  GITHUB_WEBHOOK_REQUIRE_SECRET: ${GITHUB_WEBHOOK_REQUIRE_SECRET:-true}
   GIT_ALLOWED_HOSTS: ${GIT_ALLOWED_HOSTS:-github.com}
   BUILD_NETWORK_DISABLED: ${BUILD_NETWORK_DISABLED:-true}
 
@@ -111,7 +124,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/health').status==200 else 1)"
+        - "import os,urllib.request,sys; req=urllib.request.Request('http://localhost:8000/api/v1/health',headers={'Host':os.environ.get('HEALTHCHECK_HOST','localhost')}); sys.exit(0 if urllib.request.urlopen(req).status==200 else 1)"
       interval: 10s
       timeout: 5s
       retries: 10
