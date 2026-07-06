@@ -1,0 +1,28 @@
+services:
+  dashboard:
+    ports: !override []
+
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST in deploy/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
+    ports:
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
+      - "${HTTPS_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: ${CADDY_MEM_LIMIT:-256m}
+    cpus: "${CADDY_CPUS:-0.5}"
+
+volumes:
+  caddy_data:
+    name: ${CADDY_DATA_VOLUME_NAME:-astrbot-registry-caddy-data}
+  caddy_config:
+    name: ${CADDY_CONFIG_VOLUME_NAME:-astrbot-registry-caddy-config}

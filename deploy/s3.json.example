@@ -1,0 +1,19 @@
+{
+  "signingKey": "replace-with-random-seaweedfs-signing-key",
+  "identities": [
+    {
+      "name": "registry",
+      "credentials": [
+        {
+          "accessKey": "replace-with-s3-access-key",
+          "secretKey": "replace-with-s3-secret-key"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    },
+    {
+      "name": "anonymous",
+      "actions": ["Read"]
+    }
+  ]
+}

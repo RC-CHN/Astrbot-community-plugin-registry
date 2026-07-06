@@ -220,3 +220,5 @@ __marimo__/
 docs/design.md
 dashboard/node_modules/
 acprctl/acprctl
+deploy/s3.json
+deploy/caddy/Caddyfile

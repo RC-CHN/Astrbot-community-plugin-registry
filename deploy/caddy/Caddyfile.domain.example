@@ -1,0 +1,11 @@
+https://{$PUBLIC_HOST} {
+	tls {
+		issuer acme https://acme-v02.api.letsencrypt.org/directory {
+			email {$ACME_EMAIL}
+		}
+	}
+
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy dashboard:80
+}

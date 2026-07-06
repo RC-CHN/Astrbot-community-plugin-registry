@@ -1,0 +1,188 @@
+name: ${COMPOSE_PROJECT_NAME:-astrbot-registry}
+
+x-backend-env: &backend-env
+  DEPLOYMENT_MODE: production
+  APP_HOST: 0.0.0.0
+  APP_PORT: 8000
+  APP_RELOAD: "false"
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DOCS_ENABLED: ${DOCS_ENABLED:-false}
+  TRUSTED_HOSTS: ${TRUSTED_HOSTS:?set TRUSTED_HOSTS in deploy/.env}
+  CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
+  SECURITY_HEADERS_ENABLED: ${SECURITY_HEADERS_ENABLED:-true}
+  HSTS_ENABLED: ${HSTS_ENABLED:-false}
+  HSTS_MAX_AGE_SECONDS: ${HSTS_MAX_AGE_SECONDS:-31536000}
+  BOOTSTRAP_API_ENABLED: ${BOOTSTRAP_API_ENABLED:-false}
+  HEALTHCHECK_HOST: ${HEALTHCHECK_HOST:?set HEALTHCHECK_HOST in deploy/.env}
+  PUBLIC_CACHE_MAX_AGE: ${PUBLIC_CACHE_MAX_AGE:-60}
+  DATABASE_URL: postgresql+asyncpg://${PG_USER:-astrbot}:${PG_PASSWORD:?set PG_PASSWORD in deploy/.env}@postgres:5432/${PG_DATABASE:-astrbot_registry}
+  DATABASE_AUTO_MIGRATE: ${DATABASE_AUTO_MIGRATE:-true}
+  REDIS_URL: redis://redis:6379
+  REDIS_CACHE_TTL: ${REDIS_CACHE_TTL:-3600}
+  REDIS_TASK_QUEUE_KEY: ${REDIS_TASK_QUEUE_KEY:-registry_tasks}
+  REDIS_TASK_DEAD_LETTER_QUEUE_KEY: ${REDIS_TASK_DEAD_LETTER_QUEUE_KEY:-registry_tasks_dead}
+  TASK_MAX_ATTEMPTS: ${TASK_MAX_ATTEMPTS:-3}
+  TASK_RETRY_DELAY_SECONDS: ${TASK_RETRY_DELAY_SECONDS:-5}
+  S3_ENDPOINT: http://seaweedfs:8333
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in deploy/.env}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in deploy/.env}
+  S3_BUCKET: ${S3_BUCKET:-astrbot-plugins}
+  S3_PUBLIC_URL: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in deploy/.env}/s3/${S3_BUCKET:-astrbot-plugins}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_AUTO_CREATE_BUCKET: ${S3_AUTO_CREATE_BUCKET:-true}
+  S3_CONNECT_TIMEOUT: ${S3_CONNECT_TIMEOUT:-3}
+  S3_READ_TIMEOUT: ${S3_READ_TIMEOUT:-10}
+  S3_MAX_ATTEMPTS: ${S3_MAX_ATTEMPTS:-2}
+  S3_PLUGINS_PREFIX: ${S3_PLUGINS_PREFIX:-plugins}
+  S3_UNKNOWN_AUTHOR: ${S3_UNKNOWN_AUTHOR:-unknown}
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+  JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+  JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+  JWT_REFRESH_TOKEN_EXPIRE_MINUTES: ${JWT_REFRESH_TOKEN_EXPIRE_MINUTES:-10080}
+  LOGIN_RATE_LIMIT_ENABLED: ${LOGIN_RATE_LIMIT_ENABLED:-true}
+  LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-5}
+  LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+  LOGIN_RATE_LIMIT_BLOCK_SECONDS: ${LOGIN_RATE_LIMIT_BLOCK_SECONDS:-900}
+  BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+  BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD in deploy/.env}
+  BOOTSTRAP_ADMIN_ROLE: ${BOOTSTRAP_ADMIN_ROLE:-admin}
+  VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
+  VIRUSTOTAL_TIMEOUT_SECONDS: ${VIRUSTOTAL_TIMEOUT_SECONDS:-120}
+  VIRUSTOTAL_POLL_INTERVAL_SECONDS: ${VIRUSTOTAL_POLL_INTERVAL_SECONDS:-5}
+  VIRUSTOTAL_MAX_POLL_ATTEMPTS: ${VIRUSTOTAL_MAX_POLL_ATTEMPTS:-24}
+  VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES: ${VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES:-33554432}
+  LLM_AGENT_ENABLED: ${LLM_AGENT_ENABLED:-false}
+  LLM_AGENT_BASE_URL: ${LLM_AGENT_BASE_URL:-}
+  LLM_AGENT_MODEL: ${LLM_AGENT_MODEL:-}
+  LLM_AGENT_API_KEY: ${LLM_AGENT_API_KEY:-}
+  LLM_AGENT_MAX_CONTEXT_CHARS: ${LLM_AGENT_MAX_CONTEXT_CHARS:-200000}
+  SCAN_PASS_WHEN_UNCONFIGURED: ${SCAN_PASS_WHEN_UNCONFIGURED:-false}
+  SCAN_UNCONFIGURED_MESSAGE: ${SCAN_UNCONFIGURED_MESSAGE:-Scan not configured}
+  MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-52428800}
+  MAX_UNZIP_BYTES: ${MAX_UNZIP_BYTES:-209715200}
+  MAX_ZIP_ENTRIES: ${MAX_ZIP_ENTRIES:-2000}
+  MAX_SINGLE_FILE_BYTES: ${MAX_SINGLE_FILE_BYTES:-52428800}
+  MAX_RELEASE_ZIP_BYTES: ${MAX_RELEASE_ZIP_BYTES:-52428800}
+  GIT_CLONE_TIMEOUT: ${GIT_CLONE_TIMEOUT:-120}
+  BUILD_NETWORK_DISABLED: ${BUILD_NETWORK_DISABLED:-true}
+  GIT_ALLOWED_HOSTS: ${GIT_ALLOWED_HOSTS:-github.com}
+  GIT_TEMP_PREFIX: ${GIT_TEMP_PREFIX:-astrbot-repo-}
+  WEBHOOK_AUTO_VERSION: ${WEBHOOK_AUTO_VERSION:-auto}
+  GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+  GITHUB_WEBHOOK_REQUIRE_SECRET: ${GITHUB_WEBHOOK_REQUIRE_SECRET:-true}
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DATABASE:-astrbot_registry}
+      POSTGRES_USER: ${PG_USER:-astrbot}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?set PG_PASSWORD in deploy/.env}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    mem_limit: ${PG_MEM_LIMIT:-768m}
+    cpus: "${PG_CPUS:-1.0}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-astrbot} -d ${PG_DATABASE:-astrbot_registry}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "${REDIS_APPENDONLY:-yes}"
+      - --maxmemory
+      - "${REDIS_MAXMEMORY:-256mb}"
+      - --maxmemory-policy
+      - "${REDIS_MAXMEMORY_POLICY:-allkeys-lru}"
+    volumes:
+      - redis_data:/data
+    mem_limit: ${REDIS_MEM_LIMIT:-256m}
+    cpus: "${REDIS_CPUS:-0.5}"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  seaweedfs:
+    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:latest}
+    restart: unless-stopped
+    command: server -s3 -s3.iam=false -s3.config=/etc/seaweedfs/s3.json -dir=/data
+    environment:
+      WEED_S3_CONFIG: /etc/seaweedfs/s3.json
+    volumes:
+      - s3_data:/data
+      - ./s3.json:/etc/seaweedfs/s3.json:ro
+    mem_limit: ${S3_MEM_LIMIT:-512m}
+    cpus: "${S3_CPUS:-1.0}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://$$(hostname -i | awk '{print $$1}'):9333/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ${IMAGE_PREFIX:-ghcr.io/rc-chn/astrbot-community-plugin-registry}-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: ${DEPLOY_ENV_FILE:-.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    environment: *backend-env
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os,urllib.request,sys; req=urllib.request.Request('http://localhost:8000/api/v1/health',headers={'Host':os.environ['HEALTHCHECK_HOST']}); sys.exit(0 if urllib.request.urlopen(req).status==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: ${BACKEND_MEM_LIMIT:-768m}
+    cpus: "${BACKEND_CPUS:-1.0}"
+
+  worker:
+    image: ${IMAGE_PREFIX:-ghcr.io/rc-chn/astrbot-community-plugin-registry}-worker:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: ${DEPLOY_ENV_FILE:-.env}
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment: *backend-env
+    mem_limit: ${WORKER_MEM_LIMIT:-768m}
+    cpus: "${WORKER_CPUS:-1.0}"
+
+  dashboard:
+    image: ${IMAGE_PREFIX:-ghcr.io/rc-chn/astrbot-community-plugin-registry}-dashboard:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${DASHBOARD_BIND:-0.0.0.0}:${DASHBOARD_PORT:-3001}:80"
+    mem_limit: ${DASHBOARD_MEM_LIMIT:-256m}
+    cpus: "${DASHBOARD_CPUS:-0.5}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pg_data:
+    name: ${PG_VOLUME_NAME:-astrbot-registry-pg-data}
+  redis_data:
+    name: ${REDIS_VOLUME_NAME:-astrbot-registry-redis-data}
+  s3_data:
+    name: ${S3_VOLUME_NAME:-astrbot-registry-s3-data}
