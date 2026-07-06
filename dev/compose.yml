@@ -123,6 +123,7 @@ services:
     image: ${BACKEND_IMAGE:-astrbot-registry-dev-backend}
     container_name: ${WORKER_CONTAINER_NAME:-astrbot-registry-dev-worker}
     restart: unless-stopped
+    env_file: .env
     depends_on:
       backend:
         condition: service_healthy
