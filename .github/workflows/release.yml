@@ -67,6 +67,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.image_prefix }}-backend:${{ steps.meta.outputs.release_tag }}
+            ${{ steps.meta.outputs.image_prefix }}-backend:latest
             ${{ steps.meta.outputs.image_prefix }}-backend:sha-${{ steps.meta.outputs.short_sha }}
 
       - name: Publish worker image
@@ -78,6 +79,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.image_prefix }}-worker:${{ steps.meta.outputs.release_tag }}
+            ${{ steps.meta.outputs.image_prefix }}-worker:latest
             ${{ steps.meta.outputs.image_prefix }}-worker:sha-${{ steps.meta.outputs.short_sha }}
 
       - name: Publish dashboard image
@@ -88,6 +90,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.image_prefix }}-dashboard:${{ steps.meta.outputs.release_tag }}
+            ${{ steps.meta.outputs.image_prefix }}-dashboard:latest
             ${{ steps.meta.outputs.image_prefix }}-dashboard:sha-${{ steps.meta.outputs.short_sha }}
 
       - uses: actions/setup-go@v5
