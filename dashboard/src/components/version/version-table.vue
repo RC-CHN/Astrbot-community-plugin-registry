@@ -11,7 +11,15 @@
 
 <script setup lang="ts">
 import { computed, h, type VNodeChild } from 'vue'
-import { NButton, NButtonGroup, NTag, NTooltip, type DataTableColumns } from 'naive-ui'
+import {
+  NButton,
+  NButtonGroup,
+  NDropdown,
+  NTag,
+  NTooltip,
+  type DataTableColumns,
+  type DropdownOption,
+} from 'naive-ui'
 
 import type { PluginDetail, VersionStatus, VersionSummary } from '@/api/types'
 import CopyableText from '@/components/common/copyable-text.vue'
@@ -98,55 +106,10 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
     title: '操作',
     key: 'actions',
     align: 'right',
-    width: 300,
+    width: 200,
     render(row) {
       const activeCheck = canActivateVersion(row)
       const latestBlockers = getVersionBlockers(props.plugin, row)
-      const scanButton = h(
-        NButton,
-        {
-          size: 'small',
-          disabled: !row.download_url || row.build_status === 'scanning',
-          onClick: () => emit('rescan', row),
-        },
-        { default: () => '全量扫描' },
-      )
-      const vtScanButton = h(
-        NButton,
-        {
-          size: 'small',
-          disabled: !row.download_url || row.build_status === 'scanning',
-          onClick: () => emit('runScanProvider', row, 'virustotal'),
-        },
-        { default: () => 'VT扫描' },
-      )
-      const vtSkipButton = h(
-        NButton,
-        {
-          size: 'small',
-          secondary: true,
-          onClick: () => emit('skipScanProvider', row, 'virustotal'),
-        },
-        { default: () => 'VT跳过' },
-      )
-      const llmScanButton = h(
-        NButton,
-        {
-          size: 'small',
-          disabled: !row.download_url || row.build_status === 'scanning',
-          onClick: () => emit('runScanProvider', row, 'llm_agent'),
-        },
-        { default: () => 'LLM扫描' },
-      )
-      const llmSkipButton = h(
-        NButton,
-        {
-          size: 'small',
-          secondary: true,
-          onClick: () => emit('skipScanProvider', row, 'llm_agent'),
-        },
-        { default: () => 'LLM跳过' },
-      )
       const activeButton = h(
         NButton,
         {
@@ -166,6 +129,14 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
         },
         { default: () => '设为 latest' },
       )
+      const scanDisabled = !row.download_url || row.build_status === 'scanning'
+      const scanOptions: DropdownOption[] = [
+        { label: '全量扫描', key: 'rescan', disabled: scanDisabled },
+        { label: 'VirusTotal 扫描', key: 'vt', disabled: scanDisabled },
+        { label: 'VirusTotal 跳过', key: 'vt-skip' },
+        { label: 'LLM 扫描', key: 'llm', disabled: scanDisabled },
+        { label: 'LLM 跳过', key: 'llm-skip' },
+      ]
       return h('div', { class: 'version-actions' }, [
         h(NButtonGroup, { class: 'version-action-group' }, {
           default: () => [
@@ -173,15 +144,34 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
             latestBlockers.length ? withTooltip(latestButton, latestBlockers.join('；')) : latestButton,
           ],
         }),
-        h(NButtonGroup, { class: 'version-action-group' }, {
-          default: () => [
-            !row.download_url ? withTooltip(scanButton, '没有可扫描的构建产物') : scanButton,
-            !row.download_url ? withTooltip(vtScanButton, '没有可扫描的构建产物') : vtScanButton,
-            vtSkipButton,
-            !row.download_url ? withTooltip(llmScanButton, '没有可扫描的构建产物') : llmScanButton,
-            llmSkipButton,
-          ],
-        }),
+        h(
+          NDropdown,
+          {
+            options: scanOptions,
+            trigger: 'click',
+            placement: 'bottom-end',
+            onSelect: (key: string) => {
+              switch (key) {
+                case 'rescan':
+                  emit('rescan', row)
+                  break
+                case 'vt':
+                  emit('runScanProvider', row, 'virustotal')
+                  break
+                case 'vt-skip':
+                  emit('skipScanProvider', row, 'virustotal')
+                  break
+                case 'llm':
+                  emit('runScanProvider', row, 'llm_agent')
+                  break
+                case 'llm-skip':
+                  emit('skipScanProvider', row, 'llm_agent')
+                  break
+              }
+            },
+          },
+          { default: () => h(NButton, { size: 'small', secondary: true }, { default: () => '扫描操作' }) },
+        ),
       ])
     },
   },

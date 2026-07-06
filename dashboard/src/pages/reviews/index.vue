@@ -24,75 +24,103 @@
 
     <main class="workbench">
       <template v-if="plugin">
-        <div class="workbench-header">
+        <header class="workbench-header">
           <plugin-title :plugin="plugin" />
           <n-space size="small">
             <status-tag kind="plugin" :value="plugin.status" />
             <n-tag size="small" round>{{ reviewStatusLabel(plugin.review_status) }}</n-tag>
           </n-space>
-        </div>
-        <dl class="meta">
-          <dt>作者</dt>
-          <dd>{{ plugin.author }}</dd>
-          <dt>Repo</dt>
-          <dd>
-            <a
-              v-if="plugin.repo_url"
-              class="text-link"
-              :href="plugin.repo_url"
-              target="_blank"
-              rel="noreferrer"
-            >
-              {{ plugin.repo_url }}
-            </a>
-          </dd>
-          <dt>描述</dt>
-          <dd>{{ plugin.description }}</dd>
-        </dl>
+        </header>
+
+        <section class="info-section">
+          <h3 class="section-title">插件信息</h3>
+          <dl class="meta">
+            <dt>作者</dt>
+            <dd>{{ plugin.author }}</dd>
+            <dt>Repo</dt>
+            <dd>
+              <a
+                v-if="plugin.repo_url"
+                class="text-link"
+                :href="plugin.repo_url"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {{ plugin.repo_url }}
+              </a>
+            </dd>
+            <dt>描述</dt>
+            <dd>{{ plugin.description }}</dd>
+          </dl>
+        </section>
 
         <publish-blocker-alert :blockers="blockers" />
-        <div v-if="plugin.versions.length" class="version-table-wrap">
-          <version-table
-            :plugin="plugin"
-            :versions="plugin.versions"
-            @set-version-status="setVersionStatus"
-            @set-latest="setLatest"
-            @rescan="rescanVersion"
-            @run-scan-provider="runScanProvider"
-            @skip-scan-provider="skipScanProvider"
-          />
-        </div>
 
-        <div class="action-bar">
-          <n-button @click="router.push(`/plugins/${plugin.id}`)">打开详情</n-button>
-          <n-button :disabled="!plugin.versions.length" @click="approvePluginOnly">仅通过插件</n-button>
-          <n-button type="primary" :disabled="blockers.length > 0" @click="approveAndPublish">
-            通过并发布
-          </n-button>
-          <n-popconfirm
-            positive-text="确认跳过"
-            negative-text="取消"
-            @positive-click="skipReviewAndPublish"
-          >
-            <template #trigger>
-              <n-button type="warning" secondary :disabled="!plugin.versions.length">
-                跳过审核并发布
-              </n-button>
-            </template>
-            跳过人工审核会直接公开当前版本，请确认这个插件来源可信。
-          </n-popconfirm>
-          <n-button type="error" secondary @click="disablePlugin">禁用</n-button>
-          <n-popconfirm
-            positive-text="确认删除"
-            negative-text="取消"
-            @positive-click="deletePlugin"
-          >
-            <template #trigger>
-              <n-button type="error" secondary>删除</n-button>
-            </template>
-            删除后插件和版本会从公开索引移除，确认继续？
-          </n-popconfirm>
-        </div>
+        <section class="version-section">
+          <h3 class="section-title">版本列表</h3>
+          <div v-if="plugin.versions.length" class="version-table-wrap">
+            <version-table
+              :plugin="plugin"
+              :versions="plugin.versions"
+              @set-version-status="setVersionStatus"
+              @set-latest="setLatest"
+              @rescan="rescanVersion"
+              @run-scan-provider="runScanProvider"
+              @skip-scan-provider="skipScanProvider"
+            />
+          </div>
+          <empty-state v-else description="暂无版本" />
+        </section>
+
+        <section class="action-section">
+          <h3 class="section-title">审核操作</h3>
+          <div class="action-bar">
+            <n-space align="center" justify="space-between" wrap :size="16">
+              <n-button @click="router.push(`/plugins/${plugin.id}`)">打开详情</n-button>
+              <n-space align="center" wrap :size="12">
+                <n-button-group>
+                  <n-button :disabled="!plugin.versions.length" @click="approvePluginOnly">
+                    仅通过插件
+                  </n-button>
+                  <n-button type="primary" :disabled="blockers.length > 0" @click="approveAndPublish">
+                    通过并发布
+                  </n-button>
+                </n-button-group>
+
+                <n-divider vertical style="height: 24px" />
+
+                <n-popconfirm
+                  positive-text="确认跳过"
+                  negative-text="取消"
+                  @positive-click="skipReviewAndPublish"
+                >
+                  <template #trigger>
+                    <n-button type="warning" secondary :disabled="!plugin.versions.length">
+                      跳过审核并发布
+                    </n-button>
+                  </template>
+                  跳过人工审核会直接公开当前版本，请确认这个插件来源可信。
+                </n-popconfirm>
+
+                <n-divider vertical style="height: 24px" />
+
+                <n-button-group>
+                  <n-button type="error" secondary @click="disablePlugin">禁用</n-button>
+                  <n-popconfirm
+                    positive-text="确认删除"
+                    negative-text="取消"
+                    @positive-click="deletePlugin"
+                  >
+                    <template #trigger>
+                      <n-button type="error" secondary>删除</n-button>
+                    </template>
+                    删除后插件和版本会从公开索引移除，确认继续？
+                  </n-popconfirm>
+                </n-button-group>
+              </n-space>
+            </n-space>
+          </div>
+        </section>
       </template>
       <empty-state v-else description="请选择一个待审核插件" />
     </main>
@@ -247,8 +275,8 @@ function reviewStatusLabel(status: string) {
 <style scoped>
 .review-layout {
   display: grid;
-  gap: 16px;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 24px;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
   min-width: 0;
 }
 
@@ -256,52 +284,65 @@ function reviewStatusLabel(status: string) {
 .workbench {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   box-shadow: var(--shadow-sm);
-  min-height: 560px;
+  min-height: 600px;
   min-width: 0;
-  padding: 20px;
+  padding: 24px;
 }
 
 .review-item {
   align-items: center;
   background: transparent;
   border: 1px solid transparent;
+  border-bottom: 1px solid var(--divider);
   border-radius: 6px;
   cursor: pointer;
   display: flex;
-  gap: 10px;
+  gap: 12px;
   justify-content: space-between;
-  padding: 10px;
+  padding: 14px;
   text-align: left;
   width: 100%;
 }
 
 .review-item.active,
 .review-item:hover {
-  background: var(--hover-bg);
+  background: var(--surface-hover);
   border-color: var(--border-muted);
 }
 
 .workbench {
-  display: grid;
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
 .workbench-header {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
   justify-content: space-between;
   min-width: 0;
 }
 
+.section-title {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0 0 12px;
+}
+
 .meta {
+  background: var(--surface-hover);
+  border-radius: 8px;
   display: grid;
-  gap: 8px;
+  gap: 12px;
   grid-template-columns: 80px minmax(0, 1fr);
   margin: 0;
+  padding: 16px;
 }
 
 .meta dt {
@@ -321,13 +362,8 @@ function reviewStatusLabel(status: string) {
 }
 
 .action-bar {
-  align-items: center;
   border-top: 1px solid var(--divider);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-  padding-top: 12px;
+  padding-top: 16px;
 }
 
 @media (max-width: 1180px) {

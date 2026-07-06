@@ -26,7 +26,7 @@ defineProps<{
   display: flex;
   gap: 16px;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
 }
 
 .page-title-row {
