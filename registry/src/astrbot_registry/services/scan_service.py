@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import tempfile
 import uuid
@@ -532,7 +533,21 @@ async def _scan_virustotal(local_path: Path, vt_config: dict[str, Any]) -> ScanO
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            analysis_id = await _upload_to_virustotal(client, headers, local_path)
+            file_sha256 = _sha256_file(local_path)
+            existing_stats = await _get_virustotal_file_report(client, headers, file_sha256)
+            if existing_stats is not None:
+                return _format_virustotal_result(existing_stats, f"file:{file_sha256}")
+
+            try:
+                analysis_id = await _upload_to_virustotal(client, headers, local_path)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 409:
+                    raise
+                existing_stats = await _get_virustotal_file_report(client, headers, file_sha256)
+                if existing_stats is not None:
+                    return _format_virustotal_result(existing_stats, f"file:{file_sha256}")
+                raise
+
             for _ in range(max_poll_attempts):
                 response = await client.get(
                     f"{VIRUSTOTAL_API_BASE_URL}/analyses/{analysis_id}",
@@ -556,6 +571,34 @@ async def _scan_virustotal(local_path: Path, vt_config: dict[str, Any]) -> ScanO
         f"VirusTotal scan timed out: analysis did not complete after {max_poll_attempts} polls",
         "error",
     )
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as artifact:
+        for chunk in iter(lambda: artifact.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+async def _get_virustotal_file_report(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    file_sha256: str,
+) -> dict[str, Any] | None:
+    response = await client.get(
+        f"{VIRUSTOTAL_API_BASE_URL}/files/{file_sha256}",
+        headers=headers,
+    )
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    data = response.json().get("data") or {}
+    attributes = data.get("attributes") or {}
+    stats = attributes.get("last_analysis_stats")
+    if not isinstance(stats, dict):
+        return None
+    return stats
 
 
 async def _upload_to_virustotal(

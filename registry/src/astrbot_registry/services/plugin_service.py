@@ -93,13 +93,13 @@ async def create_plugin(
         astrbot_version=metadata.astrbot_version,
         status="pending",
     )
-    db.add(plugin)
-    await db.flush()
-    await db.refresh(plugin)
-
     if metadata.tags:
         tags = await _ensure_tags(db, metadata.tags)
         plugin.tags = tags
+
+    db.add(plugin)
+    await db.flush()
+    await db.refresh(plugin)
 
     if metadata.i18n:
         for locale, data in metadata.i18n.items():
@@ -120,6 +120,7 @@ async def update_plugin(
     for field, value in update_data.items():
         if field == "tags":
             if value is not None:
+                await db.refresh(plugin, ["tags"])
                 plugin.tags = await _ensure_tags(db, value)
         elif hasattr(plugin, field):
             setattr(plugin, field, value)

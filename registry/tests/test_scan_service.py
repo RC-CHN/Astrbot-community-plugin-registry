@@ -143,6 +143,131 @@ async def test_scan_virustotal_rejects_files_over_direct_upload_limit(tmp_path) 
     assert "exceeds direct upload limit" in outcome.message
 
 
+@pytest.mark.asyncio
+async def test_scan_virustotal_reuses_existing_file_report(tmp_path, monkeypatch) -> None:
+    import httpx
+
+    artifact = tmp_path / "plugin.zip"
+    artifact.write_bytes(b"clean")
+    calls: list[str] = []
+
+    class FakeClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers):
+            calls.append(f"GET {url}")
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "attributes": {
+                            "last_analysis_stats": {
+                                "malicious": 0,
+                                "suspicious": 0,
+                                "harmless": 1,
+                                "undetected": 63,
+                            }
+                        }
+                    }
+                },
+                request=httpx.Request("GET", url),
+            )
+
+        async def post(self, url, headers, files):
+            calls.append(f"POST {url}")
+            return httpx.Response(200, json={}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr("astrbot_registry.services.scan_service.httpx.AsyncClient", FakeClient)
+
+    outcome = await _scan_virustotal(
+        artifact,
+        {
+            "api_key": "test-key",
+            "timeout_seconds": 1,
+            "poll_interval_seconds": 1,
+            "max_poll_attempts": 1,
+            "max_direct_upload_bytes": 1024,
+        },
+    )
+
+    assert outcome.passed is True
+    assert outcome.mode == "real"
+    assert "analysis_id=file:" in outcome.message
+    assert len([call for call in calls if call.startswith("POST")]) == 0
+
+
+@pytest.mark.asyncio
+async def test_scan_virustotal_falls_back_to_file_report_after_upload_conflict(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import httpx
+
+    artifact = tmp_path / "plugin.zip"
+    artifact.write_bytes(b"clean")
+    file_report_calls = 0
+
+    class FakeClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers):
+            nonlocal file_report_calls
+            if "/files/" in url:
+                file_report_calls += 1
+                if file_report_calls == 1:
+                    return httpx.Response(404, json={}, request=httpx.Request("GET", url))
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "attributes": {
+                                "last_analysis_stats": {
+                                    "malicious": 0,
+                                    "suspicious": 0,
+                                    "harmless": 1,
+                                    "undetected": 63,
+                                }
+                            }
+                        }
+                    },
+                    request=httpx.Request("GET", url),
+                )
+            return httpx.Response(500, json={}, request=httpx.Request("GET", url))
+
+        async def post(self, url, headers, files):
+            return httpx.Response(409, json={}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr("astrbot_registry.services.scan_service.httpx.AsyncClient", FakeClient)
+
+    outcome = await _scan_virustotal(
+        artifact,
+        {
+            "api_key": "test-key",
+            "timeout_seconds": 1,
+            "poll_interval_seconds": 1,
+            "max_poll_attempts": 1,
+            "max_direct_upload_bytes": 1024,
+        },
+    )
+
+    assert outcome.passed is True
+    assert file_report_calls == 2
+
+
 def test_build_llm_context_truncates_and_notes_limit(tmp_path) -> None:
     import zipfile
 
