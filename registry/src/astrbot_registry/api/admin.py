@@ -612,7 +612,7 @@ async def update_config_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin),
 ) -> dict:
-    return {"values": await update_config(db, request.values)}
+    return await update_config(db, request.values)
 
 
 @admin_router.post("/cache/refresh", response_model=StatusResponse)

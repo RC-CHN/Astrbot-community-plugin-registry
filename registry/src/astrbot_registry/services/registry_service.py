@@ -131,14 +131,19 @@ def _format_entry(plugin: Plugin, version: PluginVersion, s3_public_url: str | N
             "llm_agent": {"pass": False, "msg": "not scanned", "mode": "pending"},
         }
 
+    tags = [t.name for t in plugin.tags]
     return {
+        "name": plugin.plugin_key,
         "display_name": plugin.display_name,
         "desc": plugin.description,
+        "short_desc": "",
         "author": plugin.author,
         "repo": plugin.repo_url,
-        "tags": [t.name for t in plugin.tags],
+        "tags": tags,
+        "tag": tags,
         "social_link": plugin.social_link,
         "stars": plugin.stars,
+        "pinned": bool(plugin.pinned),
         "version": version.version,
         "updated_at": version.created_at.isoformat() if version.created_at else "",
         "logo": _logo_url(plugin.logo_s3_key, s3_public_url=s3_public_url),

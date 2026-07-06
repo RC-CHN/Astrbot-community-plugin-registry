@@ -15,12 +15,31 @@ def test_plugins_mocked(client: TestClient) -> None:
         "astrbot_registry.api.public.generate_registry_json",
         new_callable=AsyncMock,
         return_value={"astrbot-plugin-test": {"desc": "Test plugin"}},
+    ), patch(
+        "astrbot_registry.api.public.runtime_public_cache_max_age",
+        new_callable=AsyncMock,
+        return_value=60,
     ):
         response = client.get("/api/v1/plugins")
         assert response.status_code == 200
         assert "astrbot-plugin-test" in response.json()
         assert response.headers["cache-control"] == "public, max-age=60"
         assert response.headers["etag"]
+
+
+def test_plugins_json_alias(client: TestClient) -> None:
+    with patch(
+        "astrbot_registry.api.public.generate_registry_json",
+        new_callable=AsyncMock,
+        return_value={"astrbot-plugin-test": {"desc": "Test plugin"}},
+    ), patch(
+        "astrbot_registry.api.public.runtime_public_cache_max_age",
+        new_callable=AsyncMock,
+        return_value=60,
+    ):
+        response = client.get("/api/v1/plugins.json")
+        assert response.status_code == 200
+        assert "astrbot-plugin-test" in response.json()
 
 
 def test_plugins_md5_mocked(client: TestClient) -> None:

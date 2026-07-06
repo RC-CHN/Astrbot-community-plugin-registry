@@ -58,6 +58,10 @@ def test_registry_entry_keeps_official_shape() -> None:
     entry = _format_entry(plugin, version)
 
     assert entry["desc"] == "desc"
+    assert entry["name"] == "astrbot-plugin-test"
+    assert entry["short_desc"] == ""
+    assert entry["pinned"] is False
+    assert entry["tag"] == []
     assert entry["repo"] is None
     assert entry["download_url"] == "https://example.test/plugin.zip"
     assert entry["sec_scan"]["virustotal"]["pass"] is True

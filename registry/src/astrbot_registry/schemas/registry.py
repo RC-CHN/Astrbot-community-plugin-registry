@@ -9,13 +9,17 @@ class ScanResult(BaseModel):
 
 
 class RegistryEntry(BaseModel):
+    name: str | None = None
     display_name: str | None = None
     desc: str
+    short_desc: str = ""
     author: str
-    repo: str
+    repo: str | None = None
     tags: list[str]
+    tag: list[str] = []
     social_link: str | None = None
     stars: int
+    pinned: bool = False
     version: str
     updated_at: str
     logo: str

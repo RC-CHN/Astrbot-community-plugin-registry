@@ -28,6 +28,7 @@ async def health_check() -> dict:
 
 
 @public_router.get("/plugins")
+@public_router.get("/plugins.json")
 async def list_plugins(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     """Return the full plugin registry in AstrBot-compatible format."""
     registry = await generate_registry_json(db)
