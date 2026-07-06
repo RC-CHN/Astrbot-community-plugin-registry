@@ -22,6 +22,7 @@ jobs:
       - name: Wait for successful CI on this commit
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
           CI_WORKFLOW: ci.yml
         run: |
