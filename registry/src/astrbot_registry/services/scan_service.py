@@ -22,6 +22,7 @@ from .s3_service import download_file
 
 VIRUSTOTAL_API_BASE_URL = "https://www.virustotal.com/api/v3"
 SCAN_PROVIDERS = {"virustotal", "llm_agent"}
+SCAN_PROVIDER_ORDER = ("virustotal", "llm_agent")
 LLM_RISK_FAIL_LEVELS = {"high", "critical"}
 LLM_RELEVANT_SUFFIXES = {
     ".py",
@@ -84,37 +85,23 @@ async def scan_version(
     selected = _normalize_providers(providers)
     version, scan = await _get_or_create_scan(db, version_id)
 
-    if version.s3_key and version.download_url:
+    if _can_mark_build_scanning(version):
         version.build_status = "scanning"
         await db.commit()
 
     defaults = await runtime_scan_defaults(db)
-    if "virustotal" in selected:
-        vt_config = await runtime_virustotal_config(db)
-        if vt_config["api_key"]:
-            vt_outcome = await _scan_virustotal_for_version(
-                version,
-                vt_config,
-                local_path,
-            )
-            scan.virustotal_pass = vt_outcome.passed
-            scan.virustotal_msg = vt_outcome.message
-            scan.virustotal_mode = vt_outcome.mode
-        else:
-            scan.virustotal_pass = defaults["pass_when_unconfigured"]
-            scan.virustotal_msg = defaults["message"]
-            scan.virustotal_mode = "skipped"
-    if "llm_agent" in selected:
-        llm_config = await runtime_llm_agent_config(db)
-        if _llm_configured(llm_config):
-            llm_outcome = await _scan_llm_for_version(version, llm_config, local_path)
-            scan.llm_agent_pass = llm_outcome.passed
-            scan.llm_agent_msg = llm_outcome.message
-            scan.llm_agent_mode = llm_outcome.mode
-        else:
-            scan.llm_agent_pass = defaults["pass_when_unconfigured"]
-            scan.llm_agent_msg = defaults["message"]
-            scan.llm_agent_mode = "skipped"
+    vt_config = await runtime_virustotal_config(db) if "virustotal" in selected else None
+    llm_config = await runtime_llm_agent_config(db) if "llm_agent" in selected else None
+    outcomes = await _scan_selected_providers(
+        version,
+        selected,
+        defaults,
+        vt_config=vt_config,
+        llm_config=llm_config,
+        local_path=local_path,
+    )
+    for provider, outcome in outcomes.items():
+        _set_provider_result(scan, provider, outcome.passed, outcome.message, outcome.mode)
     scan.scanned_at = datetime.now(UTC)
     if version.s3_key and version.download_url:
         version.build_status = "success"
@@ -136,7 +123,7 @@ async def mark_scan_pending(
     for provider in _normalize_providers(providers):
         _set_provider_result(scan, provider, None, "Scan queued", "pending")
     scan.scanned_at = datetime.now(UTC)
-    if version.s3_key and version.download_url:
+    if _can_mark_build_scanning(version):
         version.build_status = "scanning"
     await db.commit()
     await db.refresh(scan)
@@ -145,6 +132,59 @@ async def mark_scan_pending(
 
     await refresh_cache(db)
     return scan
+
+
+def _can_mark_build_scanning(version: PluginVersion) -> bool:
+    """Avoid violating the latest-version invariant while rescanning published versions."""
+    if not (version.s3_key and version.download_url):
+        return False
+    return not (version.is_latest and version.version_status == "active")
+
+
+async def _scan_selected_providers(
+    version: PluginVersion,
+    selected: set[str],
+    defaults: dict[str, Any],
+    *,
+    vt_config: dict[str, Any] | None,
+    llm_config: dict[str, Any] | None,
+    local_path: Path | None,
+) -> dict[str, ScanOutcome]:
+    outcomes: dict[str, ScanOutcome] = {}
+    tasks: dict[str, asyncio.Task[ScanOutcome]] = {}
+
+    for provider in SCAN_PROVIDER_ORDER:
+        if provider not in selected:
+            continue
+        if provider == "virustotal":
+            if vt_config and vt_config.get("api_key"):
+                tasks[provider] = asyncio.create_task(
+                    _scan_virustotal_for_version(version, vt_config, local_path)
+                )
+            else:
+                outcomes[provider] = ScanOutcome(
+                    defaults["pass_when_unconfigured"],
+                    defaults["message"],
+                    "skipped",
+                )
+        elif provider == "llm_agent":
+            if llm_config and _llm_configured(llm_config):
+                tasks[provider] = asyncio.create_task(
+                    _scan_llm_for_version(version, llm_config, local_path)
+                )
+            else:
+                outcomes[provider] = ScanOutcome(
+                    defaults["pass_when_unconfigured"],
+                    defaults["message"],
+                    "skipped",
+                )
+
+    if tasks:
+        providers = list(tasks)
+        results = await asyncio.gather(*(tasks[provider] for provider in providers))
+        outcomes.update(dict(zip(providers, results, strict=True)))
+
+    return outcomes
 
 
 async def mark_scan_skipped(

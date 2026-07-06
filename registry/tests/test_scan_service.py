@@ -1,12 +1,16 @@
 import pytest
 
 from astrbot_registry.services.scan_service import (
+    ScanOutcome,
     _build_llm_context,
+    _can_mark_build_scanning,
     _format_virustotal_result,
     _parse_llm_response,
     _scan_llm,
+    _scan_selected_providers,
     _scan_virustotal,
 )
+from astrbot_registry.models import PluginVersion
 
 
 def test_format_virustotal_result_passes_clean_analysis() -> None:
@@ -43,6 +47,79 @@ def test_format_virustotal_result_fails_malicious_or_suspicious_analysis() -> No
     assert "VirusTotal failed" in outcome.message
     assert "malicious=1" in outcome.message
     assert "suspicious=2" in outcome.message
+
+
+def test_latest_active_version_is_not_marked_scanning() -> None:
+    version = PluginVersion(
+        s3_key="plugins/example.zip",
+        download_url="https://example.test/plugin.zip",
+        is_latest=True,
+        version_status="active",
+    )
+
+    assert _can_mark_build_scanning(version) is False
+
+
+def test_draft_version_can_be_marked_scanning() -> None:
+    version = PluginVersion(
+        s3_key="plugins/example.zip",
+        download_url="https://example.test/plugin.zip",
+        is_latest=False,
+        version_status="draft",
+    )
+
+    assert _can_mark_build_scanning(version) is True
+
+
+@pytest.mark.asyncio
+async def test_selected_scan_providers_run_concurrently(monkeypatch) -> None:
+    import asyncio
+
+    version = PluginVersion(
+        s3_key="plugins/example.zip",
+        download_url="https://example.test/plugin.zip",
+    )
+    vt_started = asyncio.Event()
+    llm_started = asyncio.Event()
+
+    async def fake_virustotal_for_version(*args, **kwargs):
+        vt_started.set()
+        await llm_started.wait()
+        return ScanOutcome(True, "vt ok", "real")
+
+    async def fake_llm_for_version(*args, **kwargs):
+        llm_started.set()
+        await vt_started.wait()
+        return ScanOutcome(True, "llm ok", "real")
+
+    monkeypatch.setattr(
+        "astrbot_registry.services.scan_service._scan_virustotal_for_version",
+        fake_virustotal_for_version,
+    )
+    monkeypatch.setattr(
+        "astrbot_registry.services.scan_service._scan_llm_for_version",
+        fake_llm_for_version,
+    )
+
+    outcomes = await asyncio.wait_for(
+        _scan_selected_providers(
+            version,
+            {"virustotal", "llm_agent"},
+            {"pass_when_unconfigured": True, "message": "skipped"},
+            vt_config={"api_key": "vt-key"},
+            llm_config={
+                "enabled": True,
+                "base_url": "https://api.example.test/v1",
+                "model": "test-model",
+                "api_key": "llm-key",
+            },
+            local_path=None,
+        ),
+        timeout=1,
+    )
+
+    assert outcomes["virustotal"].message == "vt ok"
+    assert outcomes["llm_agent"].message == "llm ok"
 
 
 @pytest.mark.asyncio
