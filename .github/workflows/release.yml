@@ -1,0 +1,163 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  actions: read
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  wait-for-ci:
+    name: Wait for CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for successful CI on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          CI_WORKFLOW: ci.yml
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 1800))
+          while (( SECONDS < deadline )); do
+            runs="$(gh run list \
+              --workflow "$CI_WORKFLOW" \
+              --commit "$SHA" \
+              --event push \
+              --json databaseId,status,conclusion,url \
+              --limit 20)"
+            success_count="$(jq '[.[] | select(.status == "completed" and .conclusion == "success")] | length' <<<"$runs")"
+            failed_count="$(jq '[.[] | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required"))] | length' <<<"$runs")"
+            running_count="$(jq '[.[] | select(.status != "completed")] | length' <<<"$runs")"
+            if [[ "$success_count" != "0" ]]; then
+              echo "Found successful CI run for $SHA"
+              exit 0
+            fi
+            if [[ "$failed_count" != "0" && "$running_count" == "0" ]]; then
+              echo "CI failed for $SHA"
+              jq -r '.[] | "- \(.conclusion) \(.url)"' <<<"$runs"
+              exit 1
+            fi
+            echo "Waiting for CI on $SHA..."
+            sleep 20
+          done
+          echo "Timed out waiting for CI on $SHA"
+          exit 1
+
+  publish:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs: wait-for-ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare release metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          image_prefix="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${repo_name}"
+          image_prefix="$(tr '[:upper:]' '[:lower:]' <<<"$image_prefix")"
+          short_sha="${GITHUB_SHA::12}"
+          echo "image_prefix=$image_prefix" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.registry
+          target: backend
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_prefix }}-backend:${{ github.ref_name }}
+            ${{ steps.meta.outputs.image_prefix }}-backend:sha-${{ steps.meta.outputs.short_sha }}
+
+      - name: Publish worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.registry
+          target: worker
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_prefix }}-worker:${{ github.ref_name }}
+            ${{ steps.meta.outputs.image_prefix }}-worker:sha-${{ steps.meta.outputs.short_sha }}
+
+      - name: Publish dashboard image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.dashboard
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_prefix }}-dashboard:${{ github.ref_name }}
+            ${{ steps.meta.outputs.image_prefix }}-dashboard:sha-${{ steps.meta.outputs.short_sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: acprctl/go.mod
+          cache-dependency-path: acprctl/go.mod
+
+      - name: Build acprctl release artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          targets=(
+            linux/amd64
+            linux/arm64
+            darwin/amd64
+            darwin/arm64
+            windows/amd64
+            windows/arm64
+          )
+          for target in "${targets[@]}"; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            name="acprctl_${GITHUB_REF_NAME}_${goos}_${goarch}"
+            workdir="dist/$name"
+            mkdir -p "$workdir"
+            binary="acprctl"
+            if [[ "$goos" == "windows" ]]; then
+              binary="acprctl.exe"
+            fi
+            (
+              cd acprctl
+              CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+                go build -trimpath -ldflags="-s -w" -o "../$workdir/$binary" .
+            )
+            cp acprctl/README.md "$workdir/README.md"
+            if [[ "$goos" == "windows" ]]; then
+              (cd dist && zip -qr "$name.zip" "$name")
+            else
+              tar -C dist -czf "dist/$name.tar.gz" "$name"
+            fi
+            rm -rf "$workdir"
+          done
+          (cd dist && sha256sum *.tar.gz *.zip > SHA256SUMS)
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS
