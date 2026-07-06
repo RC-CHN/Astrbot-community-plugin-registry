@@ -1,111 +1,70 @@
 ---
 name: acprctl
-description: Use this skill whenever the user asks to use, build, deploy, test, document, or modify acprctl, the standalone Go CLI for administering AstrBot Community Plugin Registry. Also use it for ACPR admin workflows such as plugin review, publish, scan, build, upload, runtime config changes, cache refresh, or dev-stack verification through acprctl, even if the user only mentions registry administration.
+description: Use this skill when the user wants Codex to administer, validate, troubleshoot, or document AstrBot Community Plugin Registry using a prebuilt acprctl binary. Trigger for connecting to a registry, plugin submission/upload/build/scan/review/publish, runtime config, cache refresh, wait behavior, GitHub webhook setup, production health checks, or agent-operated registry maintenance from an installed CLI.
 ---
 
 # acprctl
 
-Use this skill to work with `acprctl`, the standalone Go admin CLI for AstrBot Community Plugin Registry.
+Use this skill to operate AstrBot Community Plugin Registry through the standalone `acprctl` admin CLI.
 
-## Progressive References
+Assume the agent may only have:
 
-- Read `references/command-reference.md` when you need exact syntax for any command, flags, examples, or error-code handling.
-- Read `references/implementation-coverage.md` when you need to answer whether the Go CLI implements the interaction design, identify gaps, or modify behavior safely.
-- Read `docs/acprctl-cli-interaction-design.md` only when you need the full product design. That file may be ignored by git in this workspace.
+- the `acprctl` binary
+- this skill folder
+- the registry service URL
+- admin credentials or an admin token
+- optional shell tools such as `curl`, `openssl`, and `jq`
+
+Use the installed CLI and the live registry service as the operating surface.
+
+## Reference Map
+
+Load only the reference needed for the task:
+
+- `references/command-reference.md`: exact command syntax, flags, config precedence, output, and exit codes.
+- `references/operations-workflows.md`: step-by-step workflows for submit, upload, build, scan, review, publish, config, and cache work.
+- `references/deployment-and-connection.md`: dev/prod connection, HTTP vs Caddy TLS deployment, release assets, GHCR image tags, and agent skill installation.
+- `references/scans-and-webhooks.md`: VirusTotal/LLM scan configuration, scan waits, GitHub webhook setup, and webhook verification.
+- `references/validation-troubleshooting.md`: service validation, production health checks, common failures, and recovery steps.
+- `references/implementation-coverage.md`: released CLI capability coverage and known operational boundaries.
 
 ## Core Rules
 
-- Treat `acprctl/` as the CLI implementation. Do not add the tool under `registry/src/astrbot_registry`.
-- Build a single deployable binary from the Go module:
-  ```bash
-  cd acprctl
-  go build -o acprctl .
-  ```
-- The CLI talks to the backend Admin API through `/api/v1/admin/...`; pass the service origin as `--server-url`, for example `http://localhost:3001`.
-- Prefer JSON output for automation. Use `--format table` only for human inspection.
-- Do not bypass backend state checks. Publishing a version still requires successful build and passing scans.
+- Connect to the service origin, not to a private backend container. The CLI normalizes the origin to `/api/v1`.
+- Prefer `--format json` for automation and agent use; use table output only for human inspection.
+- Use command flags or `ACPRCTL_*` environment variables for agent runs. Avoid writing shared config files on multi-user hosts.
+- Do not bypass backend publishing rules. A publish path must still satisfy build, scan, status, and latest-version constraints.
+- Treat destructive operations as explicit: use `--yes` only when the user clearly asked for deletion.
+- Never print or persist admin passwords, API keys, tokens, webhook secrets, VT keys, or LLM keys in conversation output.
 
-## Quick Workflow
+## Fast Path
 
-1. Confirm the tool builds and tests:
-   ```bash
-   cd acprctl
-   go test ./...
-   go build -o acprctl .
-   ```
-
-2. For the dev stack, check service health first:
-   ```bash
-   docker compose -f dev/compose.yml ps
-   curl -fsS http://localhost:3001/api/v1/health
-   ```
-
-3. Use default dev credentials only for the local dev stack:
-   ```bash
-   ./acprctl --server-url http://localhost:3001 --username admin --password admin123456 stats
-   ```
-
-4. For repeated local use, write a config file:
-   ```bash
-   ./acprctl configure \
-     --server-url http://localhost:3001 \
-     --username admin \
-     --password admin123456
-   ```
-
-## Configuration
-
-Config priority is command flags, then `ACPRCTL_*` environment variables, then `~/.config/acprctl/config.yaml`.
-
-Useful environment variables:
+Check that the binary is available:
 
 ```bash
-ACPRCTL_SERVER_URL=http://localhost:3001
-ACPRCTL_USERNAME=admin
-ACPRCTL_PASSWORD=admin123456
-ACPRCTL_TOKEN=...
-ACPRCTL_FORMAT=json
-ACPRCTL_TIMEOUT=30s
-ACPRCTL_WAIT_INTERVAL=3s
-ACPRCTL_WAIT_TIMEOUT=120s
+acprctl --help
 ```
 
-For CI or agent runs, prefer flags or environment variables over writing a shared config file.
+Connect to production:
 
-## Common Commands
+```bash
+acprctl configure \
+  --server-url https://registry.example.com \
+  --username admin \
+  --password '<admin-password>' \
+  --format json
 
-Use `acprctl stats`, `acprctl plugin list`, `acprctl plugin show`, `acprctl review list`, `acprctl config list`, and `acprctl cache refresh` for quick inspection. For the full command set, including all plugin, version, review, upload, scan, config, and destructive commands, read `references/command-reference.md`.
+acprctl stats
+acprctl review list
+```
 
-## Error Handling
+Use environment variables for one-off agent runs:
 
-Errors are JSON on stderr and include `code`; scripts should branch on the process exit code.
+```bash
+ACPRCTL_SERVER_URL=https://registry.example.com \
+ACPRCTL_USERNAME=admin \
+ACPRCTL_PASSWORD='<admin-password>' \
+acprctl --format json stats
+```
 
-- `2`: auth failure
-- `3`: destructive action missing `--yes`
-- `4`: not found
-- `5`: wait timeout
-- `6`: validation or bad input
-
-When a command fails, inspect both the exit code and JSON `detail`. For publish failures, expect backend validation messages about build or scan state.
-
-## Editing Guidance
-
-- Keep the Go CLI dependency-free unless there is a strong reason to add a module dependency.
-- If a CLI behavior disagrees with the backend, verify the real API in `registry/src/astrbot_registry/api/admin.py` and dashboard API calls before changing command semantics.
-- If changing config responses, preserve the full response shape: `values`, `effective_values`, `sensitive_status`, `sensitive_keys`, and `deployment_values`.
-- After CLI edits, run:
-  ```bash
-  cd acprctl
-  gofmt -w main.go main_test.go
-  go test ./...
-  go build -o /tmp/acprctl-test .
-  ```
-- After backend API edits, run:
-  ```bash
-  uv run pytest -q
-  uv run ruff check registry/src registry/tests
-  ```
-
-## Full Reference
-
-For feature coverage against the interaction design, read `references/implementation-coverage.md`.
+If a task involves more than inspection, read `references/operations-workflows.md` before acting.

@@ -1,61 +1,51 @@
-# acprctl Implementation Coverage
+# acprctl Capability Coverage
 
-Use this reference to answer whether the Go CLI implements `docs/acprctl-cli-interaction-design.md`.
+Use this reference to answer what the released `acprctl` CLI can do.
 
 ## Summary
 
-The Go implementation in `acprctl/main.go` implements the concrete administrator features described in sections 1-10 of the interaction design:
+The CLI covers the administrator workflows needed to operate AstrBot Community Plugin Registry:
 
-- standalone Go binary, not a Python package command
+- service connection through `--server-url`
 - config/env/flag resolution
-- login and token use
-- structured JSON output and error codes
-- plugin key / UUID resolution
-- async wait support for submit/build/scan workflows
-- multipart upload
-- all plugin, version, review, config, cache, and stats commands listed in the command tree
-
-The design's section 12 items remain intentionally unresolved, not implemented requirements:
-
-- rollback on partial `review publish` failure
-- batch operations such as deleting multiple plugin keys in one command
-- hand-curated table columns beyond the generic table renderer
+- username/password login and bearer token use
+- structured JSON output and structured stderr errors
+- plugin key and UUID references
+- async waits for submit/build/scan workflows
+- multipart upload for plugin and version zip files
+- plugin, version, review, config, cache, and stats administration
 
 ## Coverage Matrix
 
-| Design area | Status | Notes |
+| Area | Status | Notes |
 |---|---:|---|
-| Standalone Go CLI | Implemented | Source lives in `acprctl/`; build with `go build -o acprctl .`. |
-| No Python package command | Implemented | Do not add `acprctl` to `registry/pyproject.toml`. |
-| API base normalization | Implemented | `--server-url` accepts origin, `/api`, or `/api/v1`. |
-| Flag/env/config priority | Implemented | Flags override `ACPRCTL_*`, which override config file. |
-| Default config path | Implemented | `~/.config/acprctl/config.yaml`, or `XDG_CONFIG_HOME/acprctl/config.yaml`. |
-| `configure` | Implemented | Writes config with 0600 permissions and validates username/password by login. |
-| Token auth | Implemented | Existing token is used directly. |
-| Username/password login | Implemented | Auto-login when token is absent. |
-| 401 retry | Implemented | Retries login once when credentials are available. |
-| `auth login` | Implemented | Prints token response. |
-| JSON output | Implemented | Default output is indented JSON. |
-| table output | Implemented | Generic table renderer for maps/lists; not a per-command custom table. |
-| no ANSI color | Implemented | CLI emits plain text only. |
-| structured errors | Implemented | JSON on stderr with `error`, `code`, optional `status` and `detail`. |
-| exit codes 0-6 | Implemented | Matches the design table. |
-| `--verbose` | Implemented | Logs HTTP method and URL to stderr. |
-| `--help` | Implemented | Prints top-level help without requiring server config. |
-| plugin-key resolution | Implemented | Non-UUID refs query `/admin/plugins?q=...` and require exact key match. |
-| explicit `--id` | Implemented | Works anywhere a plugin ref is accepted. |
-| async wait | Implemented | Polls plugin detail and version `build_status`; timeout exits 5. |
-| `plugin submit --wait` | Implemented | Uses response `plugin_id`, explicit `--plugin-key`, then repo-name inference. |
-| multipart upload | Implemented | `plugin upload` and `plugin version upload`. |
-| version name to UUID | Implemented | Version commands list versions and resolve by `id` or `version`. |
-| `config list` | Implemented | Returns full runtime config response. |
-| `config set` | Implemented | Supports repeated `--key/--value` pairs. |
-| cache refresh | Implemented | Calls admin cache refresh endpoint. |
-| stats | Implemented | Calls admin stats endpoint. |
+| Standalone binary | Supported | Operate with the installed `acprctl` binary. |
+| Service URL normalization | Supported | Origin, `/api`, and `/api/v1` inputs work. |
+| Flag/env/config priority | Supported | Flags override `ACPRCTL_*`, which override config file values. |
+| Default config path | Supported | `~/.config/acprctl/config.yaml`, or `XDG_CONFIG_HOME/acprctl/config.yaml`. |
+| `configure` | Supported | Validates login and stores token when credentials are supplied. |
+| Token auth | Supported | Existing token can be supplied with `--token` or `ACPRCTL_TOKEN`. |
+| Username/password login | Supported | Used when no token is available. |
+| 401 retry | Supported | Retries login once when credentials are available. |
+| `auth login` | Supported | Prints token response. |
+| JSON output | Supported | Default output is indented JSON. |
+| Table output | Supported | Generic table renderer for maps/lists. |
+| Structured errors | Supported | JSON on stderr with `error`, `code`, optional `status` and `detail`. |
+| Exit codes 0-6 | Supported | Stable for automation. |
+| `--verbose` | Supported | Logs HTTP method and URL to stderr. |
+| `--help` | Supported | Prints top-level help without server config. |
+| Plugin-key resolution | Supported | Non-UUID refs query admin plugin list and require exact key match. |
+| Explicit `--id` | Supported | Works anywhere a plugin ref is accepted. |
+| Async wait | Supported | Polls plugin detail and build/scan state; timeout exits 5. |
+| `plugin submit --wait` | Supported | Most reliable with explicit `--plugin-key`. |
+| Multipart upload | Supported | `plugin upload` and `plugin version upload`. |
+| Version name to UUID | Supported | Version commands resolve version names or IDs. |
+| `config list` | Supported | Returns deployment, effective, runtime override, and sensitive status fields. |
+| `config set` | Supported | Supports repeated `--key/--value` pairs. |
+| Cache refresh | Supported | Refreshes public registry cache. |
+| Stats | Supported | Shows total and pending plugin counts. |
 
 ## Command Coverage
-
-Implemented command tree:
 
 ```text
 acprctl
@@ -88,38 +78,11 @@ acprctl
 └── review delete
 ```
 
-## Known Boundaries
+## Known Operational Boundaries
 
 - Config parsing is intentionally simple and supports the flat key-value config that `configure` writes. It is not a general YAML parser.
-- Some enum validation is delegated to the backend, so invalid statuses/providers may return backend validation errors rather than local parser errors.
-- Wait success is based on version `build_status == "success"` because the backend sets that state after scan workflows complete.
-- `review publish` is not transactional. If a later backend call fails, the CLI reports the failure and does not roll back prior successful calls.
-- Public plugin search and user management are explicitly outside the administrator CLI scope.
-
-## Validation Checklist
-
-After CLI edits:
-
-```bash
-cd acprctl
-gofmt -w main.go main_test.go
-go test ./...
-go build -o /tmp/acprctl-test .
-```
-
-After backend API edits:
-
-```bash
-uv run pytest -q
-uv run ruff check registry/src registry/tests
-```
-
-Dev-stack smoke test:
-
-```bash
-/tmp/acprctl-test --server-url http://localhost:3001 --username admin --password admin123456 stats
-/tmp/acprctl-test --server-url http://localhost:3001 --username admin --password admin123456 plugin list --page-size 5
-/tmp/acprctl-test --server-url http://localhost:3001 --username admin --password admin123456 plugin show --id 11111111-1111-1111-1111-111111111111
-```
-
-The final command should return structured 404 with exit code 4 when the UUID does not exist.
+- Some enum validation is delegated to the server, so invalid statuses/providers may return server validation errors.
+- Wait success for build workflows is based on a version reaching `build_status=success`.
+- Wait success for scan workflows requires selected scan providers to have completed passing or skipped results.
+- `review publish` is not transactional. If a later server call fails, inspect the plugin and repair the specific version/status/latest state.
+- Public plugin search and user management are outside the current administrator CLI scope.

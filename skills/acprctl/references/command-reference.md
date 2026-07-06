@@ -1,75 +1,52 @@
 # acprctl Command Reference
 
-Use this reference for exact command syntax. The CLI is the Go module in `acprctl/`.
+Use this reference for exact syntax. For task procedures, read `operations-workflows.md`.
 
-## Contents
+## Availability
 
-- Build and connect
-- Global flags and config
-- Auth
-- Plugin commands
-- Version commands
-- Review commands
-- Runtime config, cache, and stats
-- Error handling
-
-## Build and Connect
-
-Build a deployable binary:
+Check that `acprctl` is installed and callable:
 
 ```bash
-cd acprctl
-go test ./...
-go build -o acprctl .
+acprctl --help
 ```
 
-Use against the dev stack:
+`acprctl` talks to the registry over HTTP(S).
 
-```bash
-./acprctl --server-url http://localhost:3001 --username admin --password admin123456 stats
+## Global Flags
+
+```text
+-U, --server-url <url>       Service origin; origin, /api, and /api/v1 all work.
+-u, --username <name>        Admin username.
+-p, --password <password>    Admin password.
+-t, --token <token>          Existing bearer token.
+-c, --config <path>          Config file path.
+-f, --format json|table      Output format; default json.
+-y, --yes                    Confirm destructive commands.
+-v, --verbose                Log HTTP method and URL to stderr.
+-T, --timeout <duration>     HTTP request timeout.
+-W, --wait                   Wait for async submit/build/scan completion.
+-I, --wait-interval <dur>    Poll interval; default 3s.
+    --wait-timeout <dur>     Poll timeout; default 120s.
+-h, --help                   Print help.
 ```
 
-The CLI accepts a service origin and normalizes it to `/api/v1`. These are equivalent inputs:
+Durations accept Go-style values such as `500ms`, `3s`, `2m`, `1h`, or bare seconds.
 
-```bash
---server-url http://localhost:3001
---server-url http://localhost:3001/api
---server-url http://localhost:3001/api/v1
-```
+## Config Resolution
 
-## Global Flags and Config
-
-Config priority:
+Priority:
 
 1. Command flags
 2. `ACPRCTL_*` environment variables
 3. Config file
 
-Global flags:
-
-```text
--U, --server-url
--u, --username
--p, --password
--t, --token
--c, --config
--f, --format json|table
--y, --yes
--v, --verbose
--T, --timeout
--W, --wait
--I, --wait-interval
-    --wait-timeout
--h, --help
-```
-
 Environment variables:
 
 ```bash
-ACPRCTL_SERVER_URL=http://localhost:3001
+ACPRCTL_SERVER_URL=https://registry.example.com
 ACPRCTL_USERNAME=admin
-ACPRCTL_PASSWORD=admin123456
-ACPRCTL_TOKEN=...
+ACPRCTL_PASSWORD='...'
+ACPRCTL_TOKEN='...'
 ACPRCTL_CONFIG=~/.config/acprctl/config.yaml
 ACPRCTL_FORMAT=json
 ACPRCTL_TIMEOUT=30s
@@ -77,29 +54,64 @@ ACPRCTL_WAIT_INTERVAL=3s
 ACPRCTL_WAIT_TIMEOUT=120s
 ```
 
-Write a config:
+Default config path is `~/.config/acprctl/config.yaml`, or `$XDG_CONFIG_HOME/acprctl/config.yaml` when `XDG_CONFIG_HOME` is set.
+
+Write config:
 
 ```bash
 acprctl configure \
-  --server-url http://localhost:3001 \
+  --server-url https://registry.example.com \
   --username admin \
-  --password admin123456 \
+  --password '<admin-password>' \
   --format json
 ```
 
-## Auth
+`configure` validates username/password by logging in, stores the token when login succeeds, and writes the config file with mode `0600`.
 
-Print a token:
+## Auth
 
 ```bash
 acprctl auth login
 ```
 
-If a token is absent, authenticated commands log in with username/password. On 401, the CLI retries login once when credentials are available.
+Authenticated commands auto-login when no token is available. On `401`, the CLI retries login once when credentials exist.
+
+## Command Tree
+
+```text
+acprctl
+├── configure
+├── auth login
+├── config list
+├── config set
+├── cache refresh
+├── stats
+├── plugin list
+├── plugin show
+├── plugin submit
+├── plugin upload
+├── plugin update
+├── plugin delete
+├── plugin set-status
+├── plugin build
+├── plugin scan
+├── plugin version list
+├── plugin version upload
+├── plugin version set-latest
+├── plugin version set-status
+├── plugin version scan run
+├── plugin version scan skip
+├── review list
+├── review approve
+├── review publish
+├── review skip
+├── review disable
+└── review delete
+```
 
 ## Plugin Commands
 
-List plugins:
+List:
 
 ```bash
 acprctl plugin list \
@@ -109,7 +121,7 @@ acprctl plugin list \
   [--page-size 20]
 ```
 
-Show a plugin by key or UUID:
+Show by plugin key or UUID:
 
 ```bash
 acprctl plugin show astrbot-plugin-example
@@ -121,76 +133,76 @@ Submit a Git repository:
 ```bash
 acprctl plugin submit \
   --repo-url https://github.com/org/repo \
-  [--version v1.0] \
+  [--version v1.0.0] \
   [--ref main] \
+  [--changelog "..."] \
   [--plugin-key astrbot-plugin-example] \
   [--wait] \
-  [--wait-timeout 120s]
+  [--wait-timeout 300s]
 ```
 
-Pass `--plugin-key` when using `plugin submit --wait`; the backend submit response may not include the new plugin UUID.
-
-Upload a new plugin zip:
+Upload a plugin zip:
 
 ```bash
 acprctl plugin upload --file ./plugin.zip [--wait]
 ```
 
-Update plugin metadata:
+Update metadata:
 
 ```bash
-acprctl plugin update astrbot-plugin-example \
+acprctl plugin update <plugin-key|id> \
   [--display-name "..."] \
   [--description "..."] \
   [--category "..."] \
   [--tags tag1,tag2] \
-  [--support-platforms windows,linux] \
+  [--support-platforms linux,windows] \
   [--astrbot-version "3.0+"]
 ```
 
-Delete a plugin:
+Delete:
 
 ```bash
-acprctl plugin delete astrbot-plugin-example --yes
+acprctl plugin delete <plugin-key|id> --yes
 ```
 
-Set plugin status and optional review status:
+Set status:
 
 ```bash
-acprctl plugin set-status astrbot-plugin-example \
+acprctl plugin set-status <plugin-key|id> \
   --status active|disabled|deleted|pending \
   [--review-status pending|approved|skipped|rejected]
 ```
 
-Trigger a build:
+Build:
 
 ```bash
-acprctl plugin build astrbot-plugin-example \
-  --version v1.0 \
+acprctl plugin build <plugin-key|id> \
+  --version v1.0.0 \
   [--ref main] \
+  [--changelog "..."] \
   [--wait]
 ```
 
-Trigger all security scans for a version:
+Scan:
 
 ```bash
-acprctl plugin scan astrbot-plugin-example --version v1.0 [--wait]
+acprctl plugin scan <plugin-key|id> --version v1.0.0 [--wait]
 ```
 
 ## Version Commands
 
-List versions:
+List:
 
 ```bash
-acprctl plugin version list astrbot-plugin-example
+acprctl plugin version list <plugin-key|id>
 ```
 
-Upload a version zip:
+Upload:
 
 ```bash
-acprctl plugin version upload astrbot-plugin-example \
-  --file ./v1.0.zip \
-  --version v1.0 \
+acprctl plugin version upload <plugin-key|id> \
+  --file ./v1.0.0.zip \
+  --version v1.0.0 \
   [--changelog "..."] \
   [--wait]
 ```
@@ -198,96 +210,74 @@ acprctl plugin version upload astrbot-plugin-example \
 Set latest:
 
 ```bash
-acprctl plugin version set-latest astrbot-plugin-example --version v1.0
+acprctl plugin version set-latest <plugin-key|id> --version v1.0.0
 ```
 
-Set version status:
+Set status:
 
 ```bash
-acprctl plugin version set-status astrbot-plugin-example \
-  --version v1.0 \
-  --status active|deprecated|deleted|draft
+acprctl plugin version set-status <plugin-key|id> \
+  --version v1.0.0 \
+  --status active|draft|deprecated|deleted
 ```
 
 Run or skip provider scans:
 
 ```bash
-acprctl plugin version scan run astrbot-plugin-example \
-  --version v1.0 \
+acprctl plugin version scan run <plugin-key|id> \
+  --version v1.0.0 \
   --provider virustotal|llm_agent|all \
   [--wait]
 
-acprctl plugin version scan skip astrbot-plugin-example \
-  --version v1.0 \
+acprctl plugin version scan skip <plugin-key|id> \
+  --version v1.0.0 \
   --provider virustotal|llm_agent|all
 ```
 
 ## Review Commands
 
-List pending reviews:
-
 ```bash
 acprctl review list [--page 1] [--page-size 20]
+acprctl review approve <plugin-key|id>
+acprctl review publish <plugin-key|id> [--version v1.0.0]
+acprctl review skip <plugin-key|id> [--version v1.0.0]
+acprctl review disable <plugin-key|id>
+acprctl review delete <plugin-key|id> --yes
 ```
 
-Approve plugin only:
-
-```bash
-acprctl review approve astrbot-plugin-example
-```
-
-Approve and publish a version:
-
-```bash
-acprctl review publish astrbot-plugin-example [--version v1.0]
-```
-
-Skip review and publish a version:
-
-```bash
-acprctl review skip astrbot-plugin-example [--version v1.0]
-```
-
-Disable or delete:
-
-```bash
-acprctl review disable astrbot-plugin-example
-acprctl review delete astrbot-plugin-example --yes
-```
-
-Publishing does not bypass backend constraints. The target version must have successful build and passing scans before it can become active/latest.
+`review list` is a filtered `plugin list` for pending plugins.
 
 ## Runtime Config, Cache, and Stats
 
-Read config:
-
 ```bash
+acprctl stats
+acprctl cache refresh
 acprctl config list
+acprctl config set --key PUBLIC_CACHE_MAX_AGE --value 60
+acprctl config set --key A --value one --key B --value two
 ```
 
-Set one or more runtime config values:
-
-```bash
-acprctl config set --key S3_PUBLIC_URL --value http://localhost:3001/s3/astrbot-plugins
-acprctl config set --key S3_PUBLIC_URL --value http://... --key PUBLIC_CACHE_MAX_AGE --value 60
-```
-
-Clear a runtime override by setting an empty value:
+Clear an override:
 
 ```bash
 acprctl config set --key PUBLIC_CACHE_MAX_AGE --value ''
 ```
 
-Refresh cache and view stats:
+Sensitive config values are redacted in `config list`; use `sensitive_status` to see whether they are configured.
 
-```bash
-acprctl cache refresh
-acprctl stats
+## Output and Exit Codes
+
+Successful output is JSON by default. Errors are JSON on stderr:
+
+```json
+{
+  "error": "Plugin not found",
+  "status": 404,
+  "code": 4
+}
 ```
 
-## Error Handling
-
-Errors are JSON on stderr. Branch on exit code:
+Exit codes:
 
 ```text
 0 success
@@ -299,12 +289,4 @@ Errors are JSON on stderr. Branch on exit code:
 6 validation or bad input
 ```
 
-Example:
-
-```json
-{
-  "error": "Plugin not found",
-  "status": 404,
-  "code": 4
-}
-```
+Use both exit code and JSON `detail` in automation.
