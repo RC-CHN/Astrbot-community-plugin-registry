@@ -97,6 +97,7 @@ services:
       dockerfile: dev/Dockerfile.backend
     container_name: ${BACKEND_CONTAINER_NAME:-astrbot-registry-dev-backend}
     restart: unless-stopped
+    env_file: .env
     depends_on:
       postgres:
         condition: service_healthy
