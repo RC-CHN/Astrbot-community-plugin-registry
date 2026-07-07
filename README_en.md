@@ -24,7 +24,7 @@ Production deployment uses GHCR release images by default:
 
 Deployments follow `latest` by default. Set a concrete `IMAGE_TAG` in `deploy/.env` when you need to pin or roll back.
 
-`deploy/` provides two recommended modes.
+`deploy/` provides three recommended modes.
 
 ### Mode 1: Expose HTTP and terminate TLS externally
 
@@ -73,6 +73,21 @@ References:
 
 - https://letsencrypt.org/docs/profiles/
 - https://caddyserver.com/docs/caddyfile/directives/tls
+
+### Mode 3: Kubernetes
+
+For Kubernetes, use `deploy/kubernetes`:
+
+```bash
+cd deploy/kubernetes
+cp secret.example.yaml secret.yaml
+# edit configmap.yaml, secret.yaml, and ingress.yaml
+kubectl apply -f namespace.yaml
+kubectl apply -f secret.yaml
+kubectl apply -k .
+```
+
+The template is a generic base. It does not bind a default IngressClass, TLS issuer, or StorageClass; adjust `ingress.yaml` and PVC storage settings for the target cluster before production deployment.
 
 See [deploy/README_en.md](deploy/README_en.md) for full deployment details.
 

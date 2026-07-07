@@ -20,6 +20,7 @@ Chinese version: [README.md](README.md)
 - `s3.json.example`: SeaweedFS S3 permission template.
 - `caddy/Caddyfile.domain.example`: domain certificate mode.
 - `caddy/Caddyfile.ip.example`: public IP certificate mode.
+- `kubernetes/`: generic Kubernetes manifests.
 
 ## First Deploy
 
@@ -159,6 +160,23 @@ SCAN_PASS_WHEN_UNCONFIGURED=true
 ```
 
 In that mode, publishing should rely on manual review and admin workflow controls.
+
+## Kubernetes
+
+Kubernetes deployment files live in [kubernetes/](kubernetes/).
+
+Quick flow:
+
+```bash
+cd deploy/kubernetes
+cp secret.example.yaml secret.yaml
+# edit configmap.yaml, secret.yaml, and ingress.yaml
+kubectl apply -f namespace.yaml
+kubectl apply -f secret.yaml
+kubectl apply -k .
+```
+
+The manifests are a generic base. They do not bind a default IngressClass, TLS issuer, or StorageClass. Adjust `ingress.yaml`, TLS, exposure, and PVC storage settings for the target cluster before production deployment.
 
 ## Manage With acprctl
 

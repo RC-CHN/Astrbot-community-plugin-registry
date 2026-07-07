@@ -78,6 +78,8 @@ Dev defaults may use `http://localhost:3001` and `admin/admin123456`; never use 
 
 Production files live in `deploy/`.
 
+Docker Compose deployment:
+
 First deployment:
 
 ```bash
@@ -147,6 +149,23 @@ docker compose --env-file .env -f compose.yml -f compose.caddy.yml up -d
 IP certificate mode requires a public IP reachable by Let's Encrypt on ports `80/443`, `PUBLIC_HOST=<public-ip>`, and `PUBLIC_ORIGIN=https://<public-ip>`.
 
 Local `localhost` cannot obtain a real Let's Encrypt certificate. Use Caddy internal CA only for local TLS-chain testing.
+
+### Mode 3: Kubernetes
+
+Kubernetes manifests live in `deploy/kubernetes/`.
+
+First deployment:
+
+```bash
+cd deploy/kubernetes
+cp secret.example.yaml secret.yaml
+# edit configmap.yaml, secret.yaml, and ingress.yaml
+kubectl apply -f namespace.yaml
+kubectl apply -f secret.yaml
+kubectl apply -k .
+```
+
+The checked-in manifests are a generic base. They do not bind a default IngressClass, TLS issuer, LoadBalancer implementation, or StorageClass. Before applying to a real cluster, adjust `ingress.yaml`, TLS, exposure, and PVC storage settings for that cluster.
 
 ## Production Checks
 

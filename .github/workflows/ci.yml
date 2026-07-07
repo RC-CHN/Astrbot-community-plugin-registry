@@ -89,11 +89,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.33.5
+
       - name: Validate compose.yml
         run: docker compose --env-file deploy/.env.example -f deploy/compose.yml config --quiet
 
       - name: Validate compose.caddy.yml
         run: docker compose --env-file deploy/.env.example -f deploy/compose.yml -f deploy/compose.caddy.yml config --quiet
+
+      - name: Validate Kubernetes manifests
+        run: kubectl kustomize deploy/kubernetes >/tmp/astrbot-registry-k8s.yaml
 
       - name: Validate domain Caddyfile
         run: |

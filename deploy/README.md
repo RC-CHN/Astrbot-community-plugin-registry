@@ -20,6 +20,7 @@ English version: [README_en.md](README_en.md)
 - `s3.json.example`：SeaweedFS S3 权限配置模板。
 - `caddy/Caddyfile.domain.example`：域名证书模式。
 - `caddy/Caddyfile.ip.example`：公网 IP 证书模式。
+- `kubernetes/`：通用 Kubernetes manifests。
 
 ## 第一次部署
 
@@ -159,6 +160,23 @@ SCAN_PASS_WHEN_UNCONFIGURED=true
 ```
 
 这种模式下，发布前需要依赖人工审核和管理流程兜底。
+
+## Kubernetes
+
+Kubernetes 部署文件在 [kubernetes/](kubernetes/)。
+
+快速流程：
+
+```bash
+cd deploy/kubernetes
+cp secret.example.yaml secret.yaml
+# 编辑 configmap.yaml、secret.yaml、ingress.yaml
+kubectl apply -f namespace.yaml
+kubectl apply -f secret.yaml
+kubectl apply -k .
+```
+
+默认模板是通用 base，不默认绑定 IngressClass、TLS issuer 或 StorageClass。生产部署前，按目标集群调整 `ingress.yaml`、TLS、暴露方式和 PVC 存储配置。
 
 ## 使用 acprctl 管理
 

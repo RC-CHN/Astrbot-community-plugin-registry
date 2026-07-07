@@ -24,7 +24,7 @@ English documentation: [README_en.md](README_en.md)
 
 默认部署跟随 `latest`；需要固定版本或回滚时，在 `deploy/.env` 中设置具体 `IMAGE_TAG`。
 
-`deploy/` 提供两种推荐模式。
+`deploy/` 提供三种推荐模式。
 
 ### 模式一：暴露 HTTP，由外部终止 TLS
 
@@ -73,6 +73,21 @@ Let's Encrypt 当前通过 `shortlived` profile 支持 IP 地址证书，证书�
 
 - https://letsencrypt.org/docs/profiles/
 - https://caddyserver.com/docs/caddyfile/directives/tls
+
+### 模式三：Kubernetes
+
+如果部署到 Kubernetes，使用 `deploy/kubernetes`：
+
+```bash
+cd deploy/kubernetes
+cp secret.example.yaml secret.yaml
+# 编辑 configmap.yaml、secret.yaml、ingress.yaml
+kubectl apply -f namespace.yaml
+kubectl apply -f secret.yaml
+kubectl apply -k .
+```
+
+该模板是通用 base，不默认绑定 IngressClass、TLS issuer 或 StorageClass；生产部署前按目标集群调整 `ingress.yaml` 和 PVC 存储配置。
 
 完整部署说明见 [deploy/README.md](deploy/README.md)。
 

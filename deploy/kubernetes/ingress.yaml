@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: astrbot-registry
+  labels:
+    app.kubernetes.io/name: astrbot-community-plugin-registry
+    app.kubernetes.io/component: ingress
+    app.kubernetes.io/part-of: astrbot-registry
+spec:
+  rules:
+    - host: registry.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard
+                port:
+                  name: http

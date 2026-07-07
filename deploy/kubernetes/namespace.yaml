@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: astrbot-registry
+  labels:
+    app.kubernetes.io/name: astrbot-community-plugin-registry
+    app.kubernetes.io/part-of: astrbot-registry

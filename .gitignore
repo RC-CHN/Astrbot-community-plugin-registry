@@ -222,3 +222,5 @@ dashboard/node_modules/
 acprctl/acprctl
 deploy/s3.json
 deploy/caddy/Caddyfile
+deploy/kubernetes/secret.yaml
+imports/
