@@ -166,7 +166,7 @@ SCAN_PASS_WHEN_UNCONFIGURED: "true"
 To enable ClamAV, update `configmap.yaml`:
 
 ```yaml
-CLAMAV_ENABLED: "true"
+SCAN_ENABLED_PROVIDERS: "virustotal,llm_agent,clamav"
 CLAMAV_HOST: "clamav"
 CLAMAV_PORT: "3310"
 ```

@@ -110,7 +110,7 @@ class LLMAgentProvider(ScanProvider):
 
 
 def llm_configured(config: dict[str, Any]) -> bool:
-    return bool(config.get("enabled") and config.get("base_url") and config.get("model") and config.get("api_key"))
+    return bool(config.get("base_url") and config.get("model") and config.get("api_key"))
 
 
 async def scan_llm_for_version(

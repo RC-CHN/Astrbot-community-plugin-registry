@@ -211,14 +211,14 @@ When automatic scanning is disabled, rely on manual review and admin controls be
 
 LLM scanning requires:
 
-- `LLM_AGENT_ENABLED=true`
+- `SCAN_ENABLED_PROVIDERS` contains `llm_agent`
 - `LLM_AGENT_BASE_URL`
 - `LLM_AGENT_MODEL`
 - `LLM_AGENT_API_KEY`
 
 VirusTotal scanning requires `VIRUSTOTAL_API_KEY`.
 
-ClamAV scanning is optional and self-hosted. Docker Compose provides it behind the `clamav` profile; Kubernetes includes `deploy/kubernetes/clamav.yaml` with `replicas: 0` by default. Enable it by setting `CLAMAV_ENABLED=true`, pointing `CLAMAV_HOST`/`CLAMAV_PORT` at clamd, and starting/scaling the ClamAV service.
+ClamAV scanning is optional and self-hosted. Docker Compose provides it behind the `clamav` profile; Kubernetes includes `deploy/kubernetes/clamav.yaml` with `replicas: 0` by default. Enable it by adding `clamav` to `SCAN_ENABLED_PROVIDERS`, pointing `CLAMAV_HOST`/`CLAMAV_PORT` at clamd, and starting/scaling the ClamAV service.
 
 ## GitHub Webhook
 

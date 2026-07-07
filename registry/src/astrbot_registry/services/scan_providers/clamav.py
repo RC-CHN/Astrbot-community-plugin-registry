@@ -24,7 +24,7 @@ class ClamAVProvider(ScanProvider):
         return await runtime_clamav_config(db)
 
     def is_configured(self, config: dict[str, Any]) -> bool:
-        return bool(config.get("enabled"))
+        return bool(config.get("host") and int(config.get("port") or 0) > 0)
 
     async def scan(
         self,

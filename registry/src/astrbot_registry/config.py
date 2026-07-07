@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     llm_agent_model: str = ""
     llm_agent_api_key: str = ""
     llm_agent_max_context_chars: int = 200000
-    scan_enabled_providers: Annotated[list[str], NoDecode] = ["clamav", "virustotal", "llm_agent"]
+    scan_enabled_providers: Annotated[list[str], NoDecode] = ["virustotal", "llm_agent"]
     scan_pass_when_unconfigured: bool = True
     scan_unconfigured_message: str = "Scan not configured"
     scan_require_human_review: bool = True

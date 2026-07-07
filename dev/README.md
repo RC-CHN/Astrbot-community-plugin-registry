@@ -53,7 +53,7 @@ Required production changes:
   providers do not. `SCAN_PASS_WHEN_UNCONFIGURED` controls the displayed `pass`
   value for unconfigured skipped providers.
 - Optional ClamAV scanning is available through the `clamav` Compose profile:
-  set `CLAMAV_ENABLED=true`, keep `CLAMAV_HOST=clamav`, then run
+  add `clamav` to `SCAN_ENABLED_PROVIDERS`, keep `CLAMAV_HOST=clamav`, then run
   `docker compose --profile clamav up -d clamav backend worker`.
 - Keep `GITHUB_WEBHOOK_REQUIRE_SECRET=true` and configure
   `GITHUB_WEBHOOK_SECRET` before enabling GitHub webhooks.

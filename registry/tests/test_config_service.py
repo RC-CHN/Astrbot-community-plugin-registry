@@ -25,7 +25,6 @@ def test_config_response_includes_virustotal_runtime_defaults() -> None:
 def test_config_response_includes_llm_runtime_defaults() -> None:
     response = build_config_response({})
 
-    assert response["effective_values"]["LLM_AGENT_ENABLED"] == "False"
     assert response["effective_values"]["LLM_AGENT_BASE_URL"] == ""
     assert response["effective_values"]["LLM_AGENT_MODEL"] == ""
     assert response["effective_values"]["LLM_AGENT_MAX_CONTEXT_CHARS"] == "200000"
@@ -36,7 +35,6 @@ def test_config_response_includes_llm_runtime_defaults() -> None:
 def test_config_response_includes_clamav_runtime_defaults() -> None:
     response = build_config_response({})
 
-    assert response["effective_values"]["CLAMAV_ENABLED"] == "False"
     assert response["effective_values"]["CLAMAV_HOST"] == "clamav"
     assert response["effective_values"]["CLAMAV_PORT"] == "3310"
     assert response["effective_values"]["CLAMAV_TIMEOUT_SECONDS"] == "120"
@@ -47,7 +45,7 @@ def test_config_response_includes_clamav_runtime_defaults() -> None:
 def test_config_response_includes_scan_policy_defaults() -> None:
     response = build_config_response({})
 
-    assert response["effective_values"]["SCAN_ENABLED_PROVIDERS"] == "clamav,virustotal,llm_agent"
+    assert response["effective_values"]["SCAN_ENABLED_PROVIDERS"] == "virustotal,llm_agent"
     assert response["effective_values"]["SCAN_REQUIRE_HUMAN_REVIEW"] == "True"
     assert response["effective_values"]["SCAN_AUTO_PUBLISH_ENABLED"] == "False"
 

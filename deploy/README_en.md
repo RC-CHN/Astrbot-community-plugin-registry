@@ -171,7 +171,7 @@ docker compose --env-file .env -f compose.yml up -d backend worker
 Also set these values in `.env`:
 
 ```env
-CLAMAV_ENABLED=true
+SCAN_ENABLED_PROVIDERS=virustotal,llm_agent,clamav
 CLAMAV_HOST=clamav
 CLAMAV_PORT=3310
 ```

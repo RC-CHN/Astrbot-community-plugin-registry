@@ -70,7 +70,6 @@ async def test_clear_runtime_config_cache(monkeypatch) -> None:
 async def test_runtime_llm_agent_config(monkeypatch) -> None:
     redis = FakeRedis()
     redis.hashes[runtime_config.RUNTIME_CONFIG_CACHE_KEY] = {
-        "LLM_AGENT_ENABLED": "true",
         "LLM_AGENT_BASE_URL": "https://api.example.com/v1",
         "LLM_AGENT_MODEL": "gpt-test",
         "LLM_AGENT_API_KEY": "secret",
@@ -85,7 +84,6 @@ async def test_runtime_llm_agent_config(monkeypatch) -> None:
     values = await runtime_config.runtime_llm_agent_config(db=None)  # type: ignore[arg-type]
 
     assert values == {
-        "enabled": True,
         "base_url": "https://api.example.com/v1",
         "model": "gpt-test",
         "api_key": "secret",
