@@ -263,12 +263,11 @@ acprctl --format json config list
 Check `sensitive_status` and `effective_values` for:
 
 ```text
+SCAN_ENABLED_PROVIDERS
 VIRUSTOTAL_API_KEY
-LLM_AGENT_ENABLED
 LLM_AGENT_BASE_URL
 LLM_AGENT_MODEL
 LLM_AGENT_API_KEY
-CLAMAV_ENABLED
 CLAMAV_HOST
 CLAMAV_PORT
 SCAN_PASS_WHEN_UNCONFIGURED
@@ -372,13 +371,16 @@ If it returns `ignored`, compare the registered plugin `repo_url` with GitHub `r
 Set or repair scan config:
 
 ```bash
+acprctl config providers enable virustotal
+acprctl config providers enable llm_agent
 acprctl config set \
   --key SCAN_PASS_WHEN_UNCONFIGURED --value false \
-  --key LLM_AGENT_ENABLED --value true \
   --key LLM_AGENT_BASE_URL --value https://example.com/v1 \
   --key LLM_AGENT_MODEL --value deepseek-v4-flash \
   --key LLM_AGENT_API_KEY --value '<api-key>'
 ```
+
+If `config providers` is unavailable in the installed binary, inspect the current `SCAN_ENABLED_PROVIDERS` value and update it with `config set` while preserving providers that should stay enabled.
 
 Set webhook config:
 

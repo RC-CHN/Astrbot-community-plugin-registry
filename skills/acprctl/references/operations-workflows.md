@@ -84,6 +84,21 @@ acprctl plugin version upload astrbot-plugin-example \
 
 ## Scan Operations
 
+Inspect enabled providers:
+
+```bash
+acprctl config providers list
+```
+
+Enable or disable providers without rewriting the full provider list:
+
+```bash
+acprctl config providers enable virustotal
+acprctl config providers enable llm_agent
+acprctl config providers enable clamav
+acprctl config providers disable clamav
+```
+
 Run all scans for one version:
 
 ```bash
@@ -215,6 +230,14 @@ Set multiple values atomically in one request:
 acprctl config set \
   --key SCAN_PASS_WHEN_UNCONFIGURED --value true \
   --key WEBHOOK_AUTO_VERSION --value auto
+```
+
+Manage scan providers:
+
+```bash
+acprctl config providers list
+acprctl config providers enable clamav
+acprctl config providers disable llm_agent
 ```
 
 Clear a runtime override with an empty value:

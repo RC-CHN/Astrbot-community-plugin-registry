@@ -23,7 +23,7 @@ Load only the reference needed for the task:
 
 - `references/command-reference.md`: exact command syntax, flags, config precedence, output, and exit codes.
 - `references/operations-workflows.md`: step-by-step workflows for submit, upload, build, scan, review, publish, config, and cache work.
-- `references/deployment-and-connection.md`: dev/prod connection, HTTP vs Caddy TLS deployment, release assets, GHCR image tags, and agent skill installation.
+- `references/deployment-and-connection.md`: release bundle contents, binary checks, server URL rules, credential setup, runtime configuration, and boundaries when the agent lacks host/source access.
 - `references/scans-and-webhooks.md`: ClamAV/VirusTotal/LLM scan configuration, scan waits, GitHub webhook setup, and webhook verification.
 - `references/validation-troubleshooting.md`: service validation, production health checks, common failures, and recovery steps.
 - `references/implementation-coverage.md`: released CLI capability coverage and known operational boundaries.

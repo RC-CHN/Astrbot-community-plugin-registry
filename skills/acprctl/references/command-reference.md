@@ -84,6 +84,9 @@ acprctl
 ├── auth login
 ├── config list
 ├── config set
+├── config providers list
+├── config providers enable
+├── config providers disable
 ├── cache refresh
 ├── stats
 ├── plugin list
@@ -256,6 +259,9 @@ acprctl cache refresh
 acprctl config list
 acprctl config set --key PUBLIC_CACHE_MAX_AGE --value 60
 acprctl config set --key A --value one --key B --value two
+acprctl config providers list
+acprctl config providers enable clamav
+acprctl config providers disable llm_agent
 ```
 
 Clear an override:
@@ -265,6 +271,8 @@ acprctl config set --key PUBLIC_CACHE_MAX_AGE --value ''
 ```
 
 Sensitive config values are redacted in `config list`; use `sensitive_status` to see whether they are configured.
+
+`config providers` manages `SCAN_ENABLED_PROVIDERS` without requiring the caller to rewrite the full comma-separated value. Supported providers are `virustotal`, `llm_agent`, and `clamav`.
 
 ## Output and Exit Codes
 

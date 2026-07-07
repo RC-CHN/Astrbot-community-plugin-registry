@@ -252,6 +252,121 @@ func TestVersionScanWaitsForProviderCompletion(t *testing.T) {
 	}
 }
 
+func TestConfigProvidersEnablePreservesExistingProviders(t *testing.T) {
+	var putBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer token" {
+			t.Fatalf("missing auth header: %q", r.Header.Get("Authorization"))
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/admin/config":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"values": map[string]string{},
+				"effective_values": map[string]string{
+					"SCAN_ENABLED_PROVIDERS": "virustotal,llm_agent",
+				},
+			})
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/admin/config":
+			if err := json.NewDecoder(r.Body).Decode(&putBody); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"values": map[string]string{
+					"SCAN_ENABLED_PROVIDERS": "virustotal,llm_agent,clamav",
+				},
+				"effective_values": map[string]string{
+					"SCAN_ENABLED_PROVIDERS": "virustotal,llm_agent,clamav",
+				},
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	code, stdout, stderr := runForTest([]string{
+		"config", "providers", "enable", "clamav",
+		"--server-url", server.URL,
+		"--token", "token",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	values := putBody["values"].(map[string]any)
+	if values["SCAN_ENABLED_PROVIDERS"] != "virustotal,llm_agent,clamav" {
+		t.Fatalf("unexpected providers value: %v", values["SCAN_ENABLED_PROVIDERS"])
+	}
+	if !strings.Contains(stdout, `"enabled": [`) || !strings.Contains(stdout, `"clamav"`) {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestConfigProvidersDisableRemovesOnlySelectedProvider(t *testing.T) {
+	var putBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/admin/config":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"effective_values": map[string]string{
+					"SCAN_ENABLED_PROVIDERS": "virustotal,llm_agent,clamav",
+				},
+			})
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/admin/config":
+			if err := json.NewDecoder(r.Body).Decode(&putBody); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"effective_values": map[string]string{
+					"SCAN_ENABLED_PROVIDERS": "virustotal,clamav",
+				},
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	code, _, stderr := runForTest([]string{
+		"config", "providers", "disable", "llm_agent",
+		"--server-url", server.URL,
+		"--token", "token",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	values := putBody["values"].(map[string]any)
+	if values["SCAN_ENABLED_PROVIDERS"] != "virustotal,clamav" {
+		t.Fatalf("unexpected providers value: %v", values["SCAN_ENABLED_PROVIDERS"])
+	}
+}
+
+func TestConfigProvidersRejectsUnsupportedProvider(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/admin/config" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"effective_values": map[string]string{
+					"SCAN_ENABLED_PROVIDERS": "virustotal",
+				},
+			})
+			return
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	code, _, stderr := runForTest([]string{
+		"config", "providers", "enable", "unknown",
+		"--server-url", server.URL,
+		"--token", "token",
+	})
+	if code != exitValidation {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "unsupported scan provider") {
+		t.Fatalf("unexpected stderr: %s", stderr)
+	}
+}
+
 func runForTest(args []string) (int, string, string) {
 	var stdout strings.Builder
 	var stderr strings.Builder

@@ -1,10 +1,12 @@
 # Deployment and Connection
 
-Use this reference when connecting `acprctl` to dev, local production, or public production deployments.
+Use this reference when an operations agent has only the `acprctl` binary, this skill, the registry URL, and admin credentials or a token.
 
-## Release Artifacts
+Do not assume the agent has the project source tree, deployment manifests, `.env` files, Docker Compose files, Kubernetes manifests, or direct access to backend containers. Operate through `acprctl` and the browser-facing service origin.
 
-GitHub Releases attach platform archives named like:
+## Release Bundle
+
+Release archives are named like:
 
 ```text
 acprctl_<tag>_linux_amd64.tar.gz
@@ -16,13 +18,29 @@ acprctl_<tag>_windows_arm64.zip
 SHA256SUMS
 ```
 
-Each archive includes:
+Each archive contains:
 
-- `acprctl` binary
+- `acprctl`
 - `README.md`
 - `skills/acprctl/`
 
-Install the bundled `skills/acprctl` folder into the target agent's skills directory when the user wants agent-assisted registry operations.
+Use the bundled skill folder with the bundled binary. Do not require the registry source repository.
+
+## Binary Check
+
+```bash
+acprctl --help
+```
+
+Expected help includes at least:
+
+```text
+config list|set|providers
+plugin list|show|submit|upload|update|delete|set-status|build|scan|version
+review list|approve|publish|skip|disable|delete
+```
+
+If `config providers` is missing, the binary is older than the provider-management workflow. Use `acprctl config set --key SCAN_ENABLED_PROVIDERS --value ...` as a fallback, but preserve existing providers manually.
 
 ## Server URL Rules
 
@@ -30,6 +48,7 @@ Pass the browser-facing service origin:
 
 ```bash
 --server-url https://registry.example.com
+--server-url http://203.0.113.10:3001
 --server-url http://localhost:3001
 ```
 
@@ -41,149 +60,149 @@ These are accepted and normalized:
 --server-url https://registry.example.com/api/v1
 ```
 
-Do not point `acprctl` at the backend container's private `:8000` port in production. The dashboard/Caddy/nginx entrypoint must proxy `/api/v1/...` to the backend.
+Do not point `acprctl` at a private backend container port unless the operator explicitly says that private endpoint is the supported administrative entrypoint. Production should normally expose dashboard/Caddy/nginx, which proxies `/api/v1/...`.
 
-## Dev Stack
+## One-Off Agent Connection
 
-Check local services:
+Prefer environment variables for ephemeral agent runs:
 
 ```bash
-docker compose -f dev/compose.yml ps
-curl -fsS http://localhost:3001/api/v1/health
+export ACPRCTL_SERVER_URL=https://registry.example.com
+export ACPRCTL_USERNAME=admin
+export ACPRCTL_PASSWORD='<admin-password>'
+export ACPRCTL_FORMAT=json
+export ACPRCTL_WAIT_INTERVAL=3s
+export ACPRCTL_WAIT_TIMEOUT=300s
+
+acprctl stats
+acprctl review list
 ```
 
-Use default dev credentials only for the dev stack:
+If a bearer token is supplied:
 
 ```bash
-./acprctl --server-url http://localhost:3001 --username admin --password admin123456 stats
+export ACPRCTL_SERVER_URL=https://registry.example.com
+export ACPRCTL_TOKEN='<bearer-token>'
+acprctl stats
 ```
 
-Optional local ClamAV:
+Do not print secrets in final answers.
+
+## Local Config
+
+Use local config only when it is appropriate to persist credentials on the current machine and user account:
 
 ```bash
-cd dev
-docker compose --profile clamav up -d clamav backend worker
-```
-
-Set `CLAMAV_ENABLED=true` and `CLAMAV_HOST=clamav` in `dev/.env` before using the ClamAV provider.
-
-Write a local config when repeatedly testing:
-
-```bash
-./acprctl configure \
-  --server-url http://localhost:3001 \
+acprctl configure \
+  --server-url https://registry.example.com \
   --username admin \
-  --password admin123456 \
+  --password '<admin-password>' \
   --format json
 ```
 
-## Production HTTP Mode
+`configure` validates login and stores a token. The config file is created with mode `0600`.
 
-`deploy/compose.yml` exposes dashboard nginx over HTTP:
-
-```text
-${DASHBOARD_BIND:-0.0.0.0}:${DASHBOARD_PORT:-3001} -> dashboard:80
-```
-
-Use this mode when another reverse proxy, load balancer, or CDN terminates TLS.
-
-Important `.env` values:
-
-```env
-PUBLIC_HOST=registry.example.com
-PUBLIC_ORIGIN=https://registry.example.com
-TRUSTED_HOSTS=registry.example.com
-HEALTHCHECK_HOST=registry.example.com
-DASHBOARD_BIND=0.0.0.0
-DASHBOARD_PORT=3001
-```
-
-If the TLS terminator is on the same host:
-
-```env
-DASHBOARD_BIND=127.0.0.1
-```
-
-Then connect:
+## Connection Smoke Test
 
 ```bash
-acprctl --server-url https://registry.example.com --username admin --password '<admin-password>' stats
+curl -fsS https://registry.example.com/api/v1/health
+acprctl --format json stats
+acprctl --format json plugin list --page-size 5
+acprctl --format json review list --page-size 5
+acprctl --format json config list
 ```
 
-For temporary HTTP-only testing:
+If HTTPS is not ready and the operator provided temporary HTTP:
 
 ```bash
-acprctl --server-url http://203.0.113.10:3001 --username admin --password '<admin-password>' stats
+curl -fsS http://203.0.113.10:3001/api/v1/health
+acprctl --server-url http://203.0.113.10:3001 --format json stats
 ```
 
-Optional production ClamAV with Docker Compose:
+## Runtime Configuration Surface
+
+Use `acprctl config list` to inspect:
+
+- `effective_values`: active runtime values after overrides
+- `values`: DB-backed runtime overrides
+- `sensitive_status`: whether secrets are configured without revealing them
+- `deployment_values`: read-only process/deployment values
+
+Use `acprctl config set` for writable runtime overrides:
 
 ```bash
-cd deploy
-docker compose --env-file .env -f compose.yml --profile clamav up -d clamav
-docker compose --env-file .env -f compose.yml up -d backend worker
+acprctl config set --key PUBLIC_CACHE_MAX_AGE --value 60
+acprctl config set --key WEBHOOK_AUTO_VERSION --value auto
 ```
 
-Set `CLAMAV_ENABLED=true`, `CLAMAV_HOST=clamav`, and `CLAMAV_PORT=3310` in `deploy/.env`.
-
-## Production Caddy Mode
-
-Layer `deploy/compose.caddy.yml` on top of `deploy/compose.yml` when the stack should terminate TLS itself.
-
-Domain certificate:
+Clear a runtime override:
 
 ```bash
-cd deploy
-cp caddy/Caddyfile.domain.example caddy/Caddyfile
-docker compose --env-file .env -f compose.yml -f compose.caddy.yml up -d
+acprctl config set --key PUBLIC_CACHE_MAX_AGE --value ''
 ```
 
-Public IP certificate:
+## Scan Provider Management
+
+Use provider commands instead of hand-editing the whole CSV:
 
 ```bash
-cd deploy
-cp caddy/Caddyfile.ip.example caddy/Caddyfile
-docker compose --env-file .env -f compose.yml -f compose.caddy.yml up -d
+acprctl config providers list
+acprctl config providers enable virustotal
+acprctl config providers enable llm_agent
+acprctl config providers enable clamav
+acprctl config providers disable clamav
 ```
 
-IP certificate mode requires `PUBLIC_HOST` to be the public IP and ports `80/443` to be reachable by Let's Encrypt:
+Provider commands preserve other enabled providers. Supported providers are `virustotal`, `llm_agent`, and `clamav`.
 
-```env
-PUBLIC_HOST=203.0.113.10
-PUBLIC_ORIGIN=https://203.0.113.10
-TRUSTED_HOSTS=203.0.113.10
-HEALTHCHECK_HOST=203.0.113.10
-ACME_EMAIL=admin@example.com
+If the binary lacks `config providers`, fallback:
+
+```bash
+acprctl config list
+acprctl config set --key SCAN_ENABLED_PROVIDERS --value virustotal,llm_agent
 ```
 
-Local `localhost` cannot receive a real Let's Encrypt certificate. Use Caddy `tls internal` only for local reverse-proxy testing.
+Before using fallback, inspect the current value and preserve providers that should remain enabled.
 
-## Image Tags
+## Platform-Level Changes
 
-Deployment defaults to:
+Some changes cannot be completed by an agent that only has `acprctl`:
 
-```env
-IMAGE_TAG=latest
+- starting or scaling worker processes
+- starting ClamAV/clamd
+- changing container images or release tags
+- changing load balancer, DNS, TLS certificates, or storage
+- reading service logs when the platform does not expose them through another tool
+
+When these are required, report the exact runtime evidence from `acprctl` and ask the operator with host/cluster access to perform the platform action. Do not invent source-tree paths or deployment commands.
+
+## ClamAV Operational Boundary
+
+`acprctl` can configure the registry to use a reachable clamd endpoint:
+
+```bash
+acprctl config providers enable clamav
+acprctl config set \
+  --key CLAMAV_HOST --value clamav \
+  --key CLAMAV_PORT --value 3310
 ```
 
-Use `latest` for straightforward updates. Pin a version for reproducible deployment or rollback:
+Starting clamd itself is a platform operation. If scans fail with connection errors, collect:
 
-```env
-IMAGE_TAG=v0.1.0
+```bash
+acprctl --format json config list
+acprctl --format json plugin show <plugin-key-or-id>
 ```
 
-If `latest` is not available in the image registry yet, pin `IMAGE_TAG` to a known existing tag.
+Then ask the platform operator to verify clamd reachability from backend and worker.
 
-## Required Production Secrets
+## Release and Upgrade Notes
 
-At minimum set:
+The `acprctl` binary and `skills/acprctl` should come from the same release archive. After replacing the binary:
 
-```env
-PG_PASSWORD=
-S3_ACCESS_KEY=
-S3_SECRET_KEY=
-JWT_SECRET=
-BOOTSTRAP_ADMIN_PASSWORD=
+```bash
+acprctl --help
+acprctl --format json stats
 ```
 
-`deploy/s3.json` must contain the same S3 access key and secret as `.env`.
+If a new skill describes a command that the binary does not support, treat the binary as stale and use the documented fallback command when available.

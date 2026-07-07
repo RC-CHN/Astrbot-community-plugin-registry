@@ -16,6 +16,7 @@ all
 Runtime config keys:
 
 ```text
+SCAN_ENABLED_PROVIDERS
 SCAN_PASS_WHEN_UNCONFIGURED
 SCAN_UNCONFIGURED_MESSAGE
 VIRUSTOTAL_API_KEY
@@ -25,13 +26,11 @@ VIRUSTOTAL_MAX_POLL_INTERVAL_SECONDS
 VIRUSTOTAL_MAX_POLL_ATTEMPTS
 VIRUSTOTAL_MAX_WAIT_SECONDS
 VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES
-CLAMAV_ENABLED
 CLAMAV_HOST
 CLAMAV_PORT
 CLAMAV_TIMEOUT_SECONDS
 CLAMAV_STREAM_CHUNK_BYTES
 CLAMAV_MAX_STREAM_BYTES
-LLM_AGENT_ENABLED
 LLM_AGENT_BASE_URL
 LLM_AGENT_MODEL
 LLM_AGENT_API_KEY
@@ -44,11 +43,23 @@ Inspect scan config without revealing secret values:
 acprctl config list
 ```
 
+Manage enabled providers without hand-editing the full CSV:
+
+```bash
+acprctl config providers list
+acprctl config providers enable virustotal
+acprctl config providers enable llm_agent
+acprctl config providers enable clamav
+acprctl config providers disable clamav
+```
+
+If the binary does not support `config providers`, use `acprctl config set --key SCAN_ENABLED_PROVIDERS --value ...` as a fallback, but first inspect and preserve any providers that should remain enabled.
+
 Enable LLM scanning:
 
 ```bash
+acprctl config providers enable llm_agent
 acprctl config set \
-  --key LLM_AGENT_ENABLED --value true \
   --key LLM_AGENT_BASE_URL --value https://example.com/v1 \
   --key LLM_AGENT_MODEL --value deepseek-v4-flash \
   --key LLM_AGENT_API_KEY --value '<api-key>'
@@ -63,8 +74,8 @@ acprctl config set --key VIRUSTOTAL_API_KEY --value '<vt-api-key>'
 Enable ClamAV when a clamd TCP endpoint is reachable from backend and worker:
 
 ```bash
+acprctl config providers enable clamav
 acprctl config set \
-  --key CLAMAV_ENABLED --value true \
   --key CLAMAV_HOST --value clamav \
   --key CLAMAV_PORT --value 3310
 ```
@@ -130,12 +141,11 @@ Build and scan requests enter the backend task queue when Redis is available. Wo
 If scans never complete:
 
 ```bash
-docker compose --env-file .env -f compose.yml logs -f worker
 acprctl plugin show <plugin-key|id>
 acprctl config list
 ```
 
-Look for missing provider config, queue failures, S3 artifact download errors, and worker restarts.
+Look for missing provider config, queue failures, S3 artifact download errors, and worker restarts. If `acprctl` output is not enough, ask the platform operator with host/cluster access to inspect worker logs and queue health.
 
 ## GitHub Webhook Purpose
 

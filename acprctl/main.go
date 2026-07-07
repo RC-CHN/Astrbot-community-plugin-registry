@@ -144,7 +144,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "commands:")
 	fmt.Fprintln(w, "  configure")
 	fmt.Fprintln(w, "  auth login")
-	fmt.Fprintln(w, "  config list|set")
+	fmt.Fprintln(w, "  config list|set|providers")
 	fmt.Fprintln(w, "  cache refresh")
 	fmt.Fprintln(w, "  stats")
 	fmt.Fprintln(w, "  plugin list|show|submit|upload|update|delete|set-status|build|scan|version")
@@ -765,8 +765,83 @@ func dispatchConfig(args []string, c *client) (any, *cliError) {
 			target[key] = values[idx]
 		}
 		return c.request("PUT", "/admin/config", nil, payload, true, true)
+	case "providers":
+		return dispatchConfigProviders(args[1:], c)
 	}
 	return nil, &cliError{Message: "unknown config command: " + args[0], Status: 400, Code: exitValidation}
+}
+
+func dispatchConfigProviders(args []string, c *client) (any, *cliError) {
+	if len(args) == 0 {
+		return nil, &cliError{Message: "config providers command is required", Status: 400, Code: exitValidation}
+	}
+	switch args[0] {
+	case "list":
+		if len(args) != 1 {
+			return nil, &cliError{Message: "config providers list does not accept arguments", Status: 400, Code: exitValidation}
+		}
+		config, err := c.request("GET", "/admin/config", nil, nil, true, true)
+		if err != nil {
+			return nil, err
+		}
+		return providerConfigSummary(config), nil
+	case "enable", "disable":
+		providers := args[1:]
+		if len(providers) == 0 {
+			return nil, &cliError{Message: "config providers " + args[0] + " requires at least one provider", Status: 400, Code: exitValidation}
+		}
+		return updateConfigProviders(c, args[0], providers)
+	}
+	return nil, &cliError{Message: "unknown config providers command: " + args[0], Status: 400, Code: exitValidation}
+}
+
+func updateConfigProviders(c *client, action string, providers []string) (any, *cliError) {
+	config, err := c.request("GET", "/admin/config", nil, nil, true, true)
+	if err != nil {
+		return nil, err
+	}
+	current := providerConfigSummary(config)
+	enabled := stringSliceField(current, "enabled")
+	for _, provider := range providers {
+		if !isSupportedScanProvider(provider) {
+			return nil, &cliError{Message: "unsupported scan provider: " + provider, Status: 400, Code: exitValidation}
+		}
+		if action == "enable" {
+			enabled = appendProvider(enabled, provider)
+		} else {
+			enabled = removeProvider(enabled, provider)
+		}
+	}
+	value := strings.Join(enabled, ",")
+	payload := map[string]any{"values": map[string]string{"SCAN_ENABLED_PROVIDERS": value}}
+	updated, err := c.request("PUT", "/admin/config", nil, payload, true, true)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"providers": providerConfigSummary(updated),
+		"config":    updated,
+	}, nil
+}
+
+func providerConfigSummary(config map[string]any) map[string]any {
+	effective := mapField(config, "effective_values")
+	values := mapField(config, "values")
+	raw := stringField(effective, "SCAN_ENABLED_PROVIDERS")
+	if raw == "" {
+		raw = stringField(values, "SCAN_ENABLED_PROVIDERS")
+	}
+	enabled := normalizeProviderList(splitCSV(raw))
+	if len(enabled) == 0 && strings.EqualFold(strings.TrimSpace(raw), "none") {
+		enabled = []string{}
+	}
+	return map[string]any{
+		"enabled":   enabled,
+		"disabled":  disabledScanProviders(enabled),
+		"supported": supportedScanProviders(),
+		"key":       "SCAN_ENABLED_PROVIDERS",
+		"value":     strings.Join(enabled, ","),
+	}
 }
 
 func dispatchPlugin(args []string, options runtimeOptions, c *client) (any, *cliError) {
@@ -1701,6 +1776,85 @@ func splitCSV(value string) []string {
 		part = strings.TrimSpace(part)
 		if part != "" {
 			result = append(result, part)
+		}
+	}
+	return result
+}
+
+func supportedScanProviders() []string {
+	return []string{"virustotal", "llm_agent", "clamav"}
+}
+
+func isSupportedScanProvider(provider string) bool {
+	for _, supported := range supportedScanProviders() {
+		if provider == supported {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeProviderList(providers []string) []string {
+	selected := map[string]bool{}
+	for _, provider := range providers {
+		provider = strings.TrimSpace(provider)
+		if provider == "" || strings.EqualFold(provider, "none") {
+			continue
+		}
+		if isSupportedScanProvider(provider) {
+			selected[provider] = true
+		}
+	}
+	ordered := make([]string, 0, len(selected))
+	for _, provider := range supportedScanProviders() {
+		if selected[provider] {
+			ordered = append(ordered, provider)
+		}
+	}
+	return ordered
+}
+
+func appendProvider(providers []string, provider string) []string {
+	return normalizeProviderList(append(providers, provider))
+}
+
+func removeProvider(providers []string, provider string) []string {
+	filtered := make([]string, 0, len(providers))
+	for _, existing := range providers {
+		if existing != provider {
+			filtered = append(filtered, existing)
+		}
+	}
+	return normalizeProviderList(filtered)
+}
+
+func disabledScanProviders(enabled []string) []string {
+	selected := map[string]bool{}
+	for _, provider := range enabled {
+		selected[provider] = true
+	}
+	disabled := make([]string, 0)
+	for _, provider := range supportedScanProviders() {
+		if !selected[provider] {
+			disabled = append(disabled, provider)
+		}
+	}
+	return disabled
+}
+
+func stringSliceField(values map[string]any, key string) []string {
+	raw, ok := values[key].([]string)
+	if ok {
+		return raw
+	}
+	items, ok := values[key].([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if value, ok := item.(string); ok {
+			result = append(result, value)
 		}
 	}
 	return result

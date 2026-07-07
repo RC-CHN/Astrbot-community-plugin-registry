@@ -42,6 +42,7 @@ The CLI covers the administrator workflows needed to operate AstrBot Community P
 | Version name to UUID | Supported | Version commands resolve version names or IDs. |
 | `config list` | Supported | Returns deployment, effective, runtime override, and sensitive status fields. |
 | `config set` | Supported | Supports repeated `--key/--value` pairs. |
+| `config providers` | Supported | Lists, enables, and disables scan providers by editing `SCAN_ENABLED_PROVIDERS` safely. |
 | Cache refresh | Supported | Refreshes public registry cache. |
 | Stats | Supported | Shows total and pending plugin counts. |
 
@@ -53,6 +54,9 @@ acprctl
 ├── auth login
 ├── config list
 ├── config set
+├── config providers list
+├── config providers enable
+├── config providers disable
 ├── cache refresh
 ├── stats
 ├── plugin list
