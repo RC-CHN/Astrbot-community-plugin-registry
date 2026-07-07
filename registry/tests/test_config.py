@@ -8,8 +8,11 @@ def test_settings_parse_env_overrides() -> None:
         public_cache_max_age=120,
         redis_task_queue_key="custom_queue",
         s3_plugins_prefix="custom-plugins",
+        scan_enabled_providers="clamav,llm_agent",
         scan_pass_when_unconfigured=False,
         scan_unconfigured_message="disabled",
+        scan_require_human_review=False,
+        scan_auto_publish_enabled=True,
         webhook_auto_version="from-webhook",
     )
 
@@ -18,8 +21,11 @@ def test_settings_parse_env_overrides() -> None:
     assert settings.public_cache_max_age == 120
     assert settings.redis_task_queue_key == "custom_queue"
     assert settings.s3_plugins_prefix == "custom-plugins"
+    assert settings.scan_enabled_providers == ["clamav", "llm_agent"]
     assert settings.scan_pass_when_unconfigured is False
     assert settings.scan_unconfigured_message == "disabled"
+    assert settings.scan_require_human_review is False
+    assert settings.scan_auto_publish_enabled is True
     assert settings.webhook_auto_version == "from-webhook"
 
 

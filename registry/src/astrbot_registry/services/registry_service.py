@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from ..cache import get_redis
 from ..models import Plugin, PluginVersion, PluginVersionStat
 from ..services.plugin_service import scan_passed
-from ..services.runtime_config import runtime_redis_cache_ttl, runtime_s3_public_url
+from ..services.runtime_config import runtime_redis_cache_ttl, runtime_s3_public_url, runtime_scan_enabled_providers
 from ..services.scan_service import public_sec_scan
 
 CACHE_KEY = "registry_json"
@@ -28,9 +28,10 @@ async def generate_registry_json(db: AsyncSession) -> dict[str, Any]:
 
     plugins = await _fetch_active_plugins(db)
     s3_public_url = await runtime_s3_public_url(db)
+    required_providers = await runtime_scan_enabled_providers(db)
     registry = {}
     for plugin in plugins:
-        latest = _get_latest(plugin.versions)
+        latest = _get_latest(plugin.versions, required_providers=required_providers)
         if latest is None:
             continue
         registry[plugin.plugin_key] = _format_entry(plugin, latest, s3_public_url=s3_public_url)
@@ -99,13 +100,17 @@ async def get_stats(db: AsyncSession) -> dict[str, Any]:
     }
 
 
-def _get_latest(versions: list[PluginVersion]) -> PluginVersion | None:
+def _get_latest(
+    versions: list[PluginVersion],
+    *,
+    required_providers: list[str] | tuple[str, ...] | None = None,
+) -> PluginVersion | None:
     for version in versions:
         if (
             version.is_latest
             and version.version_status == "active"
             and version.build_status == "success"
-            and scan_passed(version)
+            and scan_passed(version, required_providers)
         ):
             return version
     return None

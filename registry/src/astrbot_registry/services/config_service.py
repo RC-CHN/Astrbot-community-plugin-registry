@@ -9,6 +9,7 @@ from .runtime_config import clear_runtime_config_cache
 
 SENSITIVE_CONFIG_KEYS = {
     "GITHUB_WEBHOOK_SECRET",
+    "GIT_HTTP_PROXY",
     "VIRUSTOTAL_API_KEY",
     "LLM_AGENT_API_KEY",
 }
@@ -26,8 +27,12 @@ EFFECTIVE_CONFIG_DEFAULTS = {
     "MAX_RELEASE_ZIP_BYTES": settings.max_release_zip_bytes,
     "GIT_ALLOWED_HOSTS": ",".join(settings.git_allowed_hosts),
     "GIT_CLONE_TIMEOUT": settings.git_clone_timeout,
+    "GIT_HTTP_PROXY": settings.git_http_proxy,
+    "SCAN_ENABLED_PROVIDERS": ",".join(settings.scan_enabled_providers),
     "SCAN_PASS_WHEN_UNCONFIGURED": settings.scan_pass_when_unconfigured,
     "SCAN_UNCONFIGURED_MESSAGE": settings.scan_unconfigured_message,
+    "SCAN_REQUIRE_HUMAN_REVIEW": settings.scan_require_human_review,
+    "SCAN_AUTO_PUBLISH_ENABLED": settings.scan_auto_publish_enabled,
     "VIRUSTOTAL_TIMEOUT_SECONDS": settings.virustotal_timeout_seconds,
     "VIRUSTOTAL_POLL_INTERVAL_SECONDS": settings.virustotal_poll_interval_seconds,
     "VIRUSTOTAL_MAX_POLL_INTERVAL_SECONDS": settings.virustotal_max_poll_interval_seconds,

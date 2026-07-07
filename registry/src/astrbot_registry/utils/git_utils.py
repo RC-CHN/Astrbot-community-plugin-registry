@@ -44,6 +44,7 @@ def clone_repo(
     ref: str | None = None,
     timeout: int | None = None,
     allowed_hosts: list[str] | None = None,
+    proxy_url: str | None = None,
 ) -> None:
     """Clone a git repository into ``dest``.
 
@@ -54,11 +55,12 @@ def clone_repo(
     if dest.exists():
         shutil.rmtree(dest)
     parse_github_url(repo_url, allowed_hosts=allowed_hosts)
+    proxy_args = _git_proxy_args(proxy_url)
 
     try:
         if ref and _is_sha(ref):
             subprocess.run(
-                ["git", "clone", repo_url, str(dest)],
+                ["git", *proxy_args, "clone", repo_url, str(dest)],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -73,7 +75,7 @@ def clone_repo(
             )
         elif ref:
             subprocess.run(
-                ["git", "clone", "--branch", ref, "--depth", "1", repo_url, str(dest)],
+                ["git", *proxy_args, "clone", "--branch", ref, "--depth", "1", repo_url, str(dest)],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -81,7 +83,7 @@ def clone_repo(
             )
         else:
             subprocess.run(
-                ["git", "clone", "--depth", "1", repo_url, str(dest)],
+                ["git", *proxy_args, "clone", "--depth", "1", repo_url, str(dest)],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -92,6 +94,18 @@ def clone_repo(
         raise GitError(f"Failed to clone {repo_url}: {stderr}") from exc
     except subprocess.TimeoutExpired as exc:
         raise GitError(f"Timed out cloning {repo_url}") from exc
+
+
+def _git_proxy_args(proxy_url: str | None) -> list[str]:
+    proxy_url = (proxy_url or "").strip()
+    if not proxy_url:
+        return []
+    return [
+        "-c",
+        f"http.proxy={proxy_url}",
+        "-c",
+        f"https.proxy={proxy_url}",
+    ]
 
 
 def get_commit_sha(repo_dir: Path) -> str:

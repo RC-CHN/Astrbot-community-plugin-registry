@@ -11,6 +11,7 @@ from ..services.plugin_service import assert_metadata_matches_plugin, update_ver
 from ..services.runtime_config import (
     runtime_git_allowed_hosts,
     runtime_git_clone_timeout,
+    runtime_git_http_proxy,
     runtime_max_release_zip_bytes,
     runtime_s3_layout,
     runtime_s3_public_url,
@@ -80,6 +81,7 @@ async def build_from_repo(
     s3_public_url = await runtime_s3_public_url(db)
     git_clone_timeout = await runtime_git_clone_timeout(db)
     git_allowed_hosts = await runtime_git_allowed_hosts(db)
+    git_http_proxy = await runtime_git_http_proxy(db)
     max_release_zip_bytes = await runtime_max_release_zip_bytes(db)
 
     # Create a pending version record to track the build.
@@ -107,6 +109,7 @@ async def build_from_repo(
                 ref=ref,
                 timeout=git_clone_timeout,
                 allowed_hosts=git_allowed_hosts,
+                proxy_url=git_http_proxy,
             )
             metadata = parse_metadata_yaml(get_metadata_path(repo_dir))
             assert_metadata_matches_plugin(metadata, plugin)

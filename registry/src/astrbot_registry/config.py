@@ -86,8 +86,11 @@ class Settings(BaseSettings):
     llm_agent_model: str = ""
     llm_agent_api_key: str = ""
     llm_agent_max_context_chars: int = 200000
+    scan_enabled_providers: Annotated[list[str], NoDecode] = ["clamav", "virustotal", "llm_agent"]
     scan_pass_when_unconfigured: bool = True
     scan_unconfigured_message: str = "Scan not configured"
+    scan_require_human_review: bool = True
+    scan_auto_publish_enabled: bool = False
 
     # Upload/build limits
     max_upload_bytes: int = 50 * 1024 * 1024
@@ -96,6 +99,7 @@ class Settings(BaseSettings):
     max_single_file_bytes: int = 50 * 1024 * 1024
     max_release_zip_bytes: int = 50 * 1024 * 1024
     git_clone_timeout: int = 120
+    git_http_proxy: str = ""
     build_network_disabled: bool = True
     git_allowed_hosts: Annotated[list[str], NoDecode] = ["github.com"]
     git_temp_prefix: str = "astrbot-repo-"
@@ -116,6 +120,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "git_allowed_hosts",
+        "scan_enabled_providers",
         "trusted_hosts",
         "cors_allow_origins",
         mode="before",

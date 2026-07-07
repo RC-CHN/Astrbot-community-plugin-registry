@@ -115,6 +115,27 @@ class VersionSummary(BaseModel):
     scan: dict | None = None
 
 
+class ArtifactTreeEntry(BaseModel):
+    path: str
+    name: str
+    kind: Literal["dir", "file"]
+    size: int | None = None
+
+
+class ArtifactTreeResponse(BaseModel):
+    entries: list[ArtifactTreeEntry]
+
+
+class ArtifactFileResponse(BaseModel):
+    path: str
+    name: str
+    size: int
+    language: str
+    content: str | None = None
+    truncated: bool = False
+    binary: bool = False
+
+
 class PluginDetail(PluginSummary):
     description: str
     repo_url: str | None = None

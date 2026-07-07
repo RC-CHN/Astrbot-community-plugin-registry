@@ -44,12 +44,26 @@ def test_config_response_includes_clamav_runtime_defaults() -> None:
     assert response["effective_values"]["CLAMAV_MAX_STREAM_BYTES"] == str(100 * 1024 * 1024)
 
 
+def test_config_response_includes_scan_policy_defaults() -> None:
+    response = build_config_response({})
+
+    assert response["effective_values"]["SCAN_ENABLED_PROVIDERS"] == "clamav,virustotal,llm_agent"
+    assert response["effective_values"]["SCAN_REQUIRE_HUMAN_REVIEW"] == "True"
+    assert response["effective_values"]["SCAN_AUTO_PUBLISH_ENABLED"] == "False"
+
+
 def test_config_response_redacts_sensitive_values() -> None:
-    response = build_config_response({"GITHUB_WEBHOOK_SECRET": "secret"})
+    response = build_config_response({
+        "GITHUB_WEBHOOK_SECRET": "secret",
+        "GIT_HTTP_PROXY": "http://user:pass@proxy.example:8080",
+    })
 
     assert "GITHUB_WEBHOOK_SECRET" not in response["values"]
     assert "GITHUB_WEBHOOK_SECRET" not in response["effective_values"]
     assert response["sensitive_status"]["GITHUB_WEBHOOK_SECRET"] is True
+    assert "GIT_HTTP_PROXY" not in response["values"]
+    assert "GIT_HTTP_PROXY" not in response["effective_values"]
+    assert response["sensitive_status"]["GIT_HTTP_PROXY"] is True
 
 
 def test_config_response_includes_masked_deployment_values() -> None:

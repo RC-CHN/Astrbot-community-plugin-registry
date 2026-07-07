@@ -12,6 +12,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Request,
     UploadFile,
     status,
@@ -22,8 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..api.deps import get_current_admin, get_current_reviewer, get_db
 from ..config import settings
 from ..database import async_session
-from ..models import Plugin, User, WebhookEvent
+from ..models import Plugin, PluginVersion, User, WebhookEvent
 from ..schemas.admin import (
+    ArtifactFileResponse,
+    ArtifactTreeResponse,
     LoginRequest,
     AdminStatsResponse,
     ConfigUpdate,
@@ -45,6 +48,7 @@ from ..schemas.admin import (
     VersionStatusUpdate,
 )
 from ..services.auth_service import authenticate_user, create_access_token, get_password_hash
+from ..services.artifact_service import ArtifactError, list_artifact_tree, read_artifact_file
 from ..services.build_service import build_from_repo
 from ..services.config_service import list_config_response, update_config
 from ..services.plugin_service import (
@@ -64,17 +68,18 @@ from ..services.plugin_service import (
 from ..services.registry_service import refresh_cache
 from ..services.runtime_config import (
     runtime_git_allowed_hosts,
+    runtime_scan_enabled_providers,
     runtime_upload_limits,
     runtime_webhook_auto_version,
     runtime_webhook_secret,
 )
 from ..services.scan_service import (
-    SCAN_PROVIDER_ORDER,
     mark_scan_pending,
     mark_scan_skipped,
     scan_version,
     version_scan_summary,
 )
+from ..services.scan_providers import get_scan_provider_registry
 from ..services.security_service import login_rate_limit_keys, login_rate_limiter
 from ..services.submit_service import submit_repo
 from ..services.task_queue import enqueue_task
@@ -90,7 +95,10 @@ from ..utils.zip_utils import (
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-def _version_summary(version) -> dict:
+def _version_summary(version, required_scan_providers: list[str] | None = None) -> dict:
+    scan = version_scan_summary(version)
+    if scan is not None and required_scan_providers is not None:
+        scan["required_providers"] = required_scan_providers
     return {
         "id": str(version.id),
         "version": version.version,
@@ -104,7 +112,7 @@ def _version_summary(version) -> dict:
         "file_size": version.file_size,
         "created_at": version.created_at,
         "updated_at": version.updated_at,
-        "scan": version_scan_summary(version),
+        "scan": scan,
     }
 
 
@@ -386,6 +394,7 @@ async def get_plugin_endpoint(
     plugin = await get_plugin_with_details(db, uuid.UUID(plugin_id))
     if plugin is None:
         raise HTTPException(status_code=404, detail="Plugin not found")
+    required_scan_providers = await runtime_scan_enabled_providers(db)
     return {
         **_plugin_summary(plugin),
         "description": plugin.description,
@@ -394,7 +403,7 @@ async def get_plugin_endpoint(
         "tags": [tag.name for tag in plugin.tags],
         "support_platforms": plugin.support_platforms or [],
         "astrbot_version": plugin.astrbot_version,
-        "versions": [_version_summary(version) for version in plugin.versions],
+        "versions": [_version_summary(version, required_scan_providers) for version in plugin.versions],
     }
 
 
@@ -431,7 +440,8 @@ async def list_versions_endpoint(
     current_user: User = Depends(get_current_reviewer),
 ) -> list:
     versions = await list_versions(db, uuid.UUID(plugin_id))
-    return [_version_summary(v) for v in versions]
+    required_scan_providers = await runtime_scan_enabled_providers(db)
+    return [_version_summary(v, required_scan_providers) for v in versions]
 
 
 @admin_router.post("/plugins/{plugin_id}/versions", response_model=VersionSubmitResponse)
@@ -522,6 +532,53 @@ async def publish_version(
     return {"status": "published"}
 
 
+@admin_router.get(
+    "/plugins/{plugin_id}/versions/{version_id}/artifact/tree",
+    response_model=ArtifactTreeResponse,
+)
+async def artifact_tree(
+    plugin_id: str,
+    version_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    version = await _get_plugin_version(db, plugin_id, version_id)
+    try:
+        return await list_artifact_tree(version)
+    except ArtifactError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@admin_router.get(
+    "/plugins/{plugin_id}/versions/{version_id}/artifact/file",
+    response_model=ArtifactFileResponse,
+)
+async def artifact_file(
+    plugin_id: str,
+    version_id: str,
+    path: str = Query(..., min_length=1, max_length=512),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    version = await _get_plugin_version(db, plugin_id, version_id)
+    try:
+        return await read_artifact_file(version, path)
+    except ArtifactError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+async def _get_plugin_version(db: AsyncSession, plugin_id: str, version_id: str) -> PluginVersion:
+    version = await db.scalar(
+        select(PluginVersion).where(
+            PluginVersion.id == uuid.UUID(version_id),
+            PluginVersion.plugin_id == uuid.UUID(plugin_id),
+        )
+    )
+    if version is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return version
+
+
 @admin_router.put("/plugins/{plugin_id}/versions/{version_id}/status", response_model=StatusResponse)
 async def update_version_status(
     plugin_id: str,
@@ -568,7 +625,7 @@ async def trigger_scan(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_reviewer),
 ) -> dict:
-    providers = list(SCAN_PROVIDER_ORDER)
+    providers = await runtime_scan_enabled_providers(db)
     await mark_scan_pending(db, uuid.UUID(version_id), providers=providers)
     await _enqueue_or_fallback(background_tasks, "scan", {"version_id": version_id, "providers": providers}, db)
     return {"status": "queued"}
@@ -583,7 +640,7 @@ async def trigger_scan_provider(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_reviewer),
 ) -> dict:
-    providers = _scan_providers(provider)
+    providers = await _scan_providers(db, provider)
     await mark_scan_pending(db, uuid.UUID(version_id), providers=providers)
     await _enqueue_or_fallback(background_tasks, "scan", {"version_id": version_id, "providers": providers}, db)
     return {"status": "queued"}
@@ -597,14 +654,14 @@ async def skip_scan_provider(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_reviewer),
 ) -> dict:
-    await mark_scan_skipped(db, uuid.UUID(version_id), providers=_scan_providers(provider))
+    await mark_scan_skipped(db, uuid.UUID(version_id), providers=await _scan_providers(db, provider))
     return {"status": "skipped"}
 
 
-def _scan_providers(provider: str) -> list[str]:
+async def _scan_providers(db: AsyncSession, provider: str) -> list[str]:
     if provider == "all":
-        return list(SCAN_PROVIDER_ORDER)
-    if provider in SCAN_PROVIDER_ORDER:
+        return await runtime_scan_enabled_providers(db)
+    if provider in get_scan_provider_registry().names:
         return [provider]
     raise HTTPException(status_code=400, detail="Invalid scan provider")
 

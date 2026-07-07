@@ -8,10 +8,10 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..models import Plugin, PluginI18n, PluginVersion, Tag
+from ..models import Plugin, PluginI18n, PluginVersion, ReviewProviderResult, Tag
 from ..schemas.plugin import PluginUpdate
 from ..services.errors import ConflictError, InvalidStateError, NotFoundError, ValidationError
-from ..services.runtime_config import runtime_s3_layout, runtime_s3_public_url
+from ..services.runtime_config import runtime_s3_layout, runtime_s3_public_url, runtime_scan_enabled_providers
 from ..services.s3_service import build_public_url_with_base, build_s3_key_with_layout, upload_file
 from ..services.scan_service import scan_providers_passed
 from ..utils.metadata_parser import PluginMetadata, infer_plugin_key
@@ -70,7 +70,8 @@ async def get_latest_version(db: AsyncSession, plugin_id: uuid.UUID) -> PluginVe
         )
     )
     version = result.scalar_one_or_none()
-    if version is None or not scan_passed(version):
+    required_providers = await runtime_scan_enabled_providers(db)
+    if version is None or not scan_passed(version, required_providers):
         return None
     return version
 
@@ -265,7 +266,8 @@ async def set_version_status(
             )
         )
         version = result.scalar_one()
-        if not scan_passed(version):
+        required_providers = await runtime_scan_enabled_providers(db)
+        if not scan_passed(version, required_providers):
             raise InvalidStateError("Version security scan must pass before activation")
     version.version_status = status
     if status in {"draft", "deprecated", "deleted"}:
@@ -308,7 +310,8 @@ async def set_latest_version(
         raise InvalidStateError("Version must be active to be set as latest")
     if version.build_status != "success":
         raise InvalidStateError("Version build must be successful to be set as latest")
-    if not scan_passed(version):
+    required_providers = await runtime_scan_enabled_providers(db)
+    if not scan_passed(version, required_providers):
         raise InvalidStateError("Version security scan must pass before setting latest")
 
     await db.execute(
@@ -356,7 +359,8 @@ async def publish_plugin_version(
         raise NotFoundError("Version not found")
     if version.build_status != "success":
         raise InvalidStateError("Version build must be successful before publishing")
-    if not scan_passed(version):
+    required_providers = await runtime_scan_enabled_providers(db)
+    if not scan_passed(version, required_providers):
         raise InvalidStateError("Version security scan must pass before publishing")
 
     plugin.status = "active"
@@ -368,6 +372,7 @@ async def publish_plugin_version(
         .values(is_latest=False)
     )
     version.is_latest = True
+    await _set_human_review_result(db, version, review_status)
     await db.commit()
     await db.refresh(version)
     await _refresh_registry_cache(db)
@@ -472,8 +477,31 @@ async def create_version_from_upload(
     )
 
 
-def scan_passed(version: PluginVersion) -> bool:
-    return scan_providers_passed(version)
+def scan_passed(version: PluginVersion, required_providers: Sequence[str] | None = None) -> bool:
+    providers = tuple(required_providers) if required_providers is not None else None
+    return scan_providers_passed(version, providers=providers)
+
+
+async def _set_human_review_result(
+    db: AsyncSession,
+    version: PluginVersion,
+    review_status: str,
+) -> None:
+    result = await db.scalar(
+        select(ReviewProviderResult)
+        .where(ReviewProviderResult.version_id == version.id)
+        .where(ReviewProviderResult.provider == "human")
+    )
+    if result is None:
+        result = ReviewProviderResult(version_id=version.id, provider="human", kind="human")
+        db.add(result)
+    result.kind = "human"
+    result.passed = review_status in {"approved", "skipped"}
+    result.mode = "skipped" if review_status == "skipped" else "real"
+    result.message = "Human review skipped" if review_status == "skipped" else "Human review approved"
+    from datetime import UTC, datetime
+
+    result.completed_at = datetime.now(UTC)
 
 
 def assert_metadata_matches_plugin(metadata: PluginMetadata, plugin: Plugin) -> None:

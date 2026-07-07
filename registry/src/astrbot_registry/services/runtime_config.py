@@ -13,6 +13,7 @@ from ..models import SystemConfig
 
 RUNTIME_CONFIG_CACHE_KEY = "runtime_config"
 RUNTIME_CONFIG_CACHE_TTL_SECONDS = 30
+KNOWN_SCAN_PROVIDER_ORDER = ("clamav", "virustotal", "llm_agent")
 
 T = TypeVar("T")
 
@@ -92,6 +93,10 @@ async def runtime_git_clone_timeout(db: AsyncSession) -> int:
     return await get_runtime_value(db, "GIT_CLONE_TIMEOUT", settings.git_clone_timeout, int)
 
 
+async def runtime_git_http_proxy(db: AsyncSession) -> str:
+    return await get_runtime_value(db, "GIT_HTTP_PROXY", settings.git_http_proxy, str)
+
+
 async def runtime_git_allowed_hosts(db: AsyncSession) -> list[str]:
     return await get_runtime_value(db, "GIT_ALLOWED_HOSTS", settings.git_allowed_hosts, list)
 
@@ -109,6 +114,41 @@ async def runtime_scan_defaults(db: AsyncSession) -> dict[str, Any]:
             "SCAN_UNCONFIGURED_MESSAGE",
             settings.scan_unconfigured_message,
             str,
+        ),
+    }
+
+
+async def runtime_scan_enabled_providers(db: AsyncSession) -> list[str]:
+    providers = await get_runtime_value(
+        db,
+        "SCAN_ENABLED_PROVIDERS",
+        settings.scan_enabled_providers,
+        list,
+    )
+    return normalize_scan_provider_list(providers)
+
+
+def normalize_scan_provider_list(providers: list[str]) -> list[str]:
+    normalized = [provider.strip().lower() for provider in providers if provider.strip()]
+    if any(provider in {"none", "off", "disabled"} for provider in normalized):
+        return []
+    selected = set(normalized)
+    return [provider for provider in KNOWN_SCAN_PROVIDER_ORDER if provider in selected]
+
+
+async def runtime_review_policy(db: AsyncSession) -> dict[str, bool]:
+    return {
+        "require_human_review": await get_runtime_value(
+            db,
+            "SCAN_REQUIRE_HUMAN_REVIEW",
+            settings.scan_require_human_review,
+            bool,
+        ),
+        "auto_publish": await get_runtime_value(
+            db,
+            "SCAN_AUTO_PUBLISH_ENABLED",
+            settings.scan_auto_publish_enabled,
+            bool,
         ),
     }
 

@@ -11,7 +11,7 @@ from ..services.plugin_service import (
     get_plugin_by_key,
     get_version_by_plugin_and_number,
 )
-from ..services.runtime_config import runtime_git_allowed_hosts, runtime_git_clone_timeout
+from ..services.runtime_config import runtime_git_allowed_hosts, runtime_git_clone_timeout, runtime_git_http_proxy
 from ..utils.git_utils import clone_repo, get_metadata_path, temp_repo_dir
 from ..utils.metadata_parser import infer_plugin_key, parse_metadata_yaml
 from .errors import ConflictError
@@ -27,6 +27,7 @@ async def submit_repo(
 ) -> None:
     git_clone_timeout = await runtime_git_clone_timeout(db)
     git_allowed_hosts = await runtime_git_allowed_hosts(db)
+    git_http_proxy = await runtime_git_http_proxy(db)
     with temp_repo_dir() as repo_dir:
         clone_repo(
             repo_url,
@@ -34,6 +35,7 @@ async def submit_repo(
             ref=ref,
             timeout=git_clone_timeout,
             allowed_hosts=git_allowed_hosts,
+            proxy_url=git_http_proxy,
         )
         metadata = parse_metadata_yaml(get_metadata_path(repo_dir))
 

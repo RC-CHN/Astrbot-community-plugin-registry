@@ -1,23 +1,33 @@
 import pytest
 
-from astrbot_registry.services.scan_service import (
+from astrbot_registry.services.scan_providers import (
     ScanOutcome,
-    _build_llm_context,
+    ScanProvider,
+    ScanProviderRegistry,
+    reset_scan_provider_registry,
+    set_scan_provider_registry,
+)
+from astrbot_registry.services.scan_providers.clamav import format_clamav_reply
+from astrbot_registry.services.scan_providers.llm_agent import (
+    build_llm_context,
+    parse_llm_response,
+    scan_llm,
+)
+from astrbot_registry.services.scan_providers.virustotal import (
+    format_virustotal_result,
+    poll_virustotal_analysis_once,
+    scan_virustotal,
+)
+from astrbot_registry.services.scan_service import (
     _can_mark_build_scanning,
-    _format_clamav_reply,
-    _format_virustotal_result,
-    _poll_virustotal_analysis,
-    _parse_llm_response,
-    _scan_llm,
     _scan_selected_providers,
-    _scan_virustotal,
     scan_providers_passed,
 )
 from astrbot_registry.models import PluginVersion, ReviewProviderResult
 
 
 def test_format_virustotal_result_passes_clean_analysis() -> None:
-    outcome = _format_virustotal_result(
+    outcome = format_virustotal_result(
         {
             "malicious": 0,
             "suspicious": 0,
@@ -35,7 +45,7 @@ def test_format_virustotal_result_passes_clean_analysis() -> None:
 
 
 def test_format_virustotal_result_fails_malicious_or_suspicious_analysis() -> None:
-    outcome = _format_virustotal_result(
+    outcome = format_virustotal_result(
         {
             "malicious": 1,
             "suspicious": 2,
@@ -75,7 +85,7 @@ def test_draft_version_can_be_marked_scanning() -> None:
 
 
 @pytest.mark.asyncio
-async def test_selected_scan_providers_run_concurrently(monkeypatch) -> None:
+async def test_selected_scan_providers_run_concurrently() -> None:
     import asyncio
 
     version = PluginVersion(
@@ -85,42 +95,46 @@ async def test_selected_scan_providers_run_concurrently(monkeypatch) -> None:
     vt_started = asyncio.Event()
     llm_started = asyncio.Event()
 
-    async def fake_virustotal_for_version(*args, **kwargs):
-        vt_started.set()
-        await llm_started.wait()
-        return ScanOutcome(True, "vt ok", "real")
+    class FakeProvider(ScanProvider):
+        def __init__(self, name, message, started, peer_started):
+            self.name = name
+            self.label = name
+            self.message = message
+            self.started = started
+            self.peer_started = peer_started
 
-    async def fake_llm_for_version(*args, **kwargs):
-        llm_started.set()
-        await vt_started.wait()
-        return ScanOutcome(True, "llm ok", "real")
+        async def load_config(self, db):
+            return {"enabled": True}
 
-    monkeypatch.setattr(
-        "astrbot_registry.services.scan_service._scan_virustotal_for_version",
-        fake_virustotal_for_version,
-    )
-    monkeypatch.setattr(
-        "astrbot_registry.services.scan_service._scan_llm_for_version",
-        fake_llm_for_version,
-    )
+        def is_configured(self, config):
+            return True
 
-    outcomes = await asyncio.wait_for(
-        _scan_selected_providers(
-            version,
-            {"virustotal", "llm_agent"},
-            {"pass_when_unconfigured": True, "message": "skipped"},
-            clamav_config=None,
-            vt_config={"api_key": "vt-key"},
-            llm_config={
-                "enabled": True,
-                "base_url": "https://api.example.test/v1",
-                "model": "test-model",
-                "api_key": "llm-key",
-            },
-            local_path=None,
-        ),
-        timeout=1,
+        async def scan(self, version, config, local_path):
+            self.started.set()
+            await self.peer_started.wait()
+            return ScanOutcome(True, self.message, "real")
+
+    set_scan_provider_registry(
+        ScanProviderRegistry(
+            (
+                FakeProvider("virustotal", "vt ok", vt_started, llm_started),
+                FakeProvider("llm_agent", "llm ok", llm_started, vt_started),
+            )
+        )
     )
+    try:
+        outcomes = await asyncio.wait_for(
+            _scan_selected_providers(
+                None,  # type: ignore[arg-type]
+                version,
+                ["virustotal", "llm_agent"],
+                {"pass_when_unconfigured": True, "message": "skipped"},
+                local_path=None,
+            ),
+            timeout=1,
+        )
+    finally:
+        reset_scan_provider_registry()
 
     assert outcomes["virustotal"].message == "vt ok"
     assert outcomes["llm_agent"].message == "llm ok"
@@ -146,11 +160,28 @@ def test_scan_passed_blocks_failed_real_provider_result() -> None:
     assert scan_providers_passed(version) is False
 
 
+def test_scan_passed_requires_selected_provider_result() -> None:
+    version = PluginVersion()
+    version.provider_results = [
+        ReviewProviderResult(provider="clamav", kind="scan", mode="real", passed=True),
+    ]
+
+    assert scan_providers_passed(version, providers=("clamav",)) is True
+    assert scan_providers_passed(version, providers=("clamav", "llm_agent")) is False
+
+
 def test_format_clamav_reply() -> None:
-    assert _format_clamav_reply("stream: OK").passed is True
-    infected = _format_clamav_reply("stream: Eicar-Test-Signature FOUND")
+    clean = format_clamav_reply("stream: OK", file_size=2048)
+    assert clean.passed is True
+    assert "no signature match" in clean.message
+    assert "artifact_size=2.0 KiB" in clean.message
+    assert 'clamd_reply="stream: OK"' in clean.message
+
+    infected = format_clamav_reply("stream: Eicar-Test-Signature FOUND", file_size=4096)
     assert infected.passed is False
     assert infected.mode == "real"
+    assert "Eicar-Test-Signature" in infected.message
+    assert "artifact_size=4.0 KiB" in infected.message
 
 
 @pytest.mark.asyncio
@@ -158,7 +189,7 @@ async def test_scan_virustotal_rejects_files_over_direct_upload_limit(tmp_path) 
     artifact = tmp_path / "plugin.zip"
     artifact.write_bytes(b"123456")
 
-    outcome = await _scan_virustotal(
+    outcome = await scan_virustotal(
         artifact,
         {
             "api_key": "test-key",
@@ -217,9 +248,9 @@ async def test_scan_virustotal_reuses_existing_file_report(tmp_path, monkeypatch
             calls.append(f"POST {url}")
             return httpx.Response(200, json={}, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr("astrbot_registry.services.scan_service.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("astrbot_registry.services.scan_providers.virustotal.httpx.AsyncClient", FakeClient)
 
-    outcome = await _scan_virustotal(
+    outcome = await scan_virustotal(
         artifact,
         {
             "api_key": "test-key",
@@ -265,9 +296,9 @@ async def test_scan_virustotal_uploads_and_returns_pending_analysis(tmp_path, mo
                 request=httpx.Request("POST", url),
             )
 
-    monkeypatch.setattr("astrbot_registry.services.scan_service.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("astrbot_registry.services.scan_providers.virustotal.httpx.AsyncClient", FakeClient)
 
-    outcome = await _scan_virustotal(
+    outcome = await scan_virustotal(
         artifact,
         {
             "api_key": "test-key",
@@ -321,9 +352,9 @@ async def test_poll_virustotal_analysis_returns_real_result_when_completed(monke
                 request=httpx.Request("GET", url),
             )
 
-    monkeypatch.setattr("astrbot_registry.services.scan_service.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("astrbot_registry.services.scan_providers.virustotal.httpx.AsyncClient", FakeClient)
 
-    outcome = await _poll_virustotal_analysis(
+    outcome = await poll_virustotal_analysis_once(
         "analysis-1",
         {
             "api_key": "test-key",
@@ -384,9 +415,9 @@ async def test_scan_virustotal_falls_back_to_file_report_after_upload_conflict(
         async def post(self, url, headers, files):
             return httpx.Response(409, json={}, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr("astrbot_registry.services.scan_service.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("astrbot_registry.services.scan_providers.virustotal.httpx.AsyncClient", FakeClient)
 
-    outcome = await _scan_virustotal(
+    outcome = await scan_virustotal(
         artifact,
         {
             "api_key": "test-key",
@@ -411,7 +442,7 @@ def test_build_llm_context_truncates_and_notes_limit(tmp_path) -> None:
         zf.writestr("metadata.yaml", "name: test\n")
         zf.writestr("main.py", "print('hello')\n" * 200)
 
-    context, truncated = _build_llm_context(artifact, 1200)
+    context, truncated = build_llm_context(artifact, 1200)
 
     assert truncated is True
     assert "Context truncated" in context
@@ -419,14 +450,14 @@ def test_build_llm_context_truncates_and_notes_limit(tmp_path) -> None:
 
 
 def test_parse_llm_response_requires_json_object() -> None:
-    result = _parse_llm_response('{"pass":true,"risk_level":"low","summary":"ok","findings":[]}')
+    result = parse_llm_response('{"pass":true,"risk_level":"low","summary":"ok","findings":[]}')
 
     assert result["pass"] is True
     assert result["risk_level"] == "low"
 
 
 def test_parse_llm_response_extracts_json_from_markdown_fence() -> None:
-    result = _parse_llm_response(
+    result = parse_llm_response(
         '```json\n{"pass":true,"risk_level":"low","summary":"ok","findings":[]}\n```'
     )
 
@@ -435,7 +466,7 @@ def test_parse_llm_response_extracts_json_from_markdown_fence() -> None:
 
 
 def test_parse_llm_response_extracts_json_from_extra_text() -> None:
-    result = _parse_llm_response(
+    result = parse_llm_response(
         'Here is the result: {"pass":false,"risk_level":"high","summary":"bad","findings":[{"reason":"x"}]} done.'
     )
 
@@ -463,9 +494,9 @@ async def test_scan_llm_uses_structured_response(tmp_path, monkeypatch) -> None:
             }
         )
 
-    monkeypatch.setattr("astrbot_registry.services.scan_service._call_llm_agent", fake_call_llm_agent)
+    monkeypatch.setattr("astrbot_registry.services.scan_providers.llm_agent.call_llm_agent", fake_call_llm_agent)
 
-    outcome = await _scan_llm(
+    outcome = await scan_llm(
         artifact,
         {
             "base_url": "https://api.example.com/v1",
@@ -499,9 +530,9 @@ async def test_scan_llm_fails_high_risk_even_when_model_passes(tmp_path, monkeyp
             }
         )
 
-    monkeypatch.setattr("astrbot_registry.services.scan_service._call_llm_agent", fake_call_llm_agent)
+    monkeypatch.setattr("astrbot_registry.services.scan_providers.llm_agent.call_llm_agent", fake_call_llm_agent)
 
-    outcome = await _scan_llm(
+    outcome = await scan_llm(
         artifact,
         {
             "base_url": "https://api.example.com/v1",
@@ -513,3 +544,47 @@ async def test_scan_llm_fails_high_risk_even_when_model_passes(tmp_path, monkeyp
 
     assert outcome.passed is False
     assert '"risk_level":"high"' in outcome.message
+
+
+@pytest.mark.asyncio
+async def test_scan_llm_downgrades_uncertainty_only_high_risk(tmp_path, monkeypatch) -> None:
+    import json
+    import zipfile
+
+    artifact = tmp_path / "plugin.zip"
+    with zipfile.ZipFile(artifact, "w") as zf:
+        zf.writestr("main.py", "print('hello')\n")
+
+    async def fake_call_llm_agent(context, truncated, config):
+        return json.dumps(
+            {
+                "pass": False,
+                "risk_level": "high",
+                "summary": "Plugin source code is incomplete. Hidden malicious behavior cannot be ruled out.",
+                "findings": [
+                    {
+                        "severity": "high",
+                        "category": "Incomplete Code",
+                        "file": "main.py",
+                        "reason": "The full logic is not visible for review.",
+                        "recommendation": "Request the full source code for complete review.",
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr("astrbot_registry.services.scan_providers.llm_agent.call_llm_agent", fake_call_llm_agent)
+
+    outcome = await scan_llm(
+        artifact,
+        {
+            "base_url": "https://api.example.com/v1",
+            "model": "gpt-test",
+            "api_key": "secret",
+            "max_context_chars": 24000,
+        },
+    )
+
+    assert outcome.passed is True
+    assert '"risk_level":"medium"' in outcome.message
+    assert "normalization_note" in outcome.message

@@ -1,7 +1,7 @@
 import hashlib
 import uuid
 
-from astrbot_registry.models import Plugin, PluginVersion, SecurityScan
+from astrbot_registry.models import Plugin, PluginVersion, ReviewProviderResult, SecurityScan
 from astrbot_registry.services.registry_service import (
     _format_entry,
     _get_latest,
@@ -53,6 +53,17 @@ def test_latest_requires_successful_build_and_non_blocking_scan_results() -> Non
     assert _get_latest([_version(scanned=True, build_status="failed")]) is None
     assert _get_latest([_version(scanned=True, scan_pass=False)]) is None
     assert _get_latest([_version(scanned=True)]) is not None
+
+
+def test_latest_uses_required_scan_provider_list() -> None:
+    version = _version(scanned=False)
+    version.provider_results = [
+        ReviewProviderResult(provider="clamav", kind="scan", mode="real", passed=True),
+        ReviewProviderResult(provider="virustotal", kind="scan", mode="real", passed=False),
+    ]
+
+    assert _get_latest([version], required_providers=["clamav"]) is version
+    assert _get_latest([version], required_providers=["clamav", "virustotal"]) is None
 
 
 def test_registry_entry_keeps_official_shape() -> None:

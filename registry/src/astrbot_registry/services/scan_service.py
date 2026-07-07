@@ -1,87 +1,34 @@
-"""VirusTotal and LLM security scanning."""
+"""Security scan orchestration."""
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
-import struct
-import tempfile
 import uuid
-import zipfile
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import PluginVersion, ReviewProviderResult, SecurityScan
 from .runtime_config import (
-    runtime_clamav_config,
-    runtime_llm_agent_config,
     runtime_scan_defaults,
+    runtime_scan_enabled_providers,
+    runtime_review_policy,
     runtime_virustotal_config,
 )
-from .s3_service import download_file
+from .scan_providers import ScanOutcome, get_scan_provider_registry
+from .scan_providers.virustotal import (
+    next_virustotal_delay,
+    poll_virustotal_analysis_once,
+    virustotal_timeout_outcome,
+)
 from .task_queue import enqueue_task
 
-VIRUSTOTAL_API_BASE_URL = "https://www.virustotal.com/api/v3"
-SCAN_PROVIDER_ORDER = ("clamav", "virustotal", "llm_agent")
+SCAN_PROVIDER_ORDER = get_scan_provider_registry().names
 SCAN_PROVIDERS = set(SCAN_PROVIDER_ORDER)
-LEGACY_PUBLIC_SCAN_PROVIDERS = ("virustotal", "llm_agent")
-LLM_RISK_FAIL_LEVELS = {"high", "critical"}
-LLM_RELEVANT_SUFFIXES = {
-    ".py",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".json",
-    ".txt",
-    ".md",
-}
-LLM_RELEVANT_NAMES = {
-    "metadata.yaml",
-    "metadata.yml",
-    "requirements.txt",
-    "pyproject.toml",
-    "config.yaml",
-    "config.yml",
-}
-LLM_SUSPICIOUS_TERMS = (
-    "eval(",
-    "exec(",
-    "subprocess",
-    "os.system",
-    "socket",
-    "requests.",
-    "httpx.",
-    "urllib",
-    "base64",
-    "pickle",
-    "token",
-    "cookie",
-    "password",
-    "secret",
-    "api_key",
-    "open(",
-    "shutil",
-)
-
-
-@dataclass(frozen=True)
-class ScanOutcome:
-    passed: bool | None
-    message: str
-    mode: str
-    virustotal_analysis_id: str | None = None
-    virustotal_file_sha256: str | None = None
-    virustotal_submitted_at: datetime | None = None
-    virustotal_deadline_at: datetime | None = None
-    virustotal_next_poll_at: datetime | None = None
-    virustotal_poll_attempts: int | None = None
+LEGACY_PUBLIC_SCAN_PROVIDERS = get_scan_provider_registry().legacy_public_names
 
 
 def scan_provider_results(version: PluginVersion) -> dict[str, dict[str, Any]]:
@@ -118,7 +65,7 @@ def public_sec_scan(
     """Format public sec_scan with known legacy keys first, then any extra providers."""
     results = scan_provider_results(version)
     output: dict[str, dict[str, Any]] = {}
-    for provider in LEGACY_PUBLIC_SCAN_PROVIDERS:
+    for provider in get_scan_provider_registry().legacy_public_names:
         if provider in results:
             output[provider] = _scan_payload_for_public(
                 results[provider],
@@ -159,6 +106,8 @@ def scan_providers_passed(version: PluginVersion, providers: tuple[str, ...] | N
         if providers is not None
         else results
     )
+    if providers is not None and any(result is None for result in selected_results.values()):
+        return False
     for result in selected_results.values():
         if not result:
             continue
@@ -206,7 +155,7 @@ async def scan_version(
     Without a configured scanner, the development default is used so local
     workflows can still progress.
     """
-    selected = _normalize_providers(providers)
+    selected = await _selected_scan_providers(db, providers)
     version, scan = await _get_or_create_scan(db, version_id)
 
     if _can_mark_build_scanning(version):
@@ -214,22 +163,17 @@ async def scan_version(
         await db.commit()
 
     defaults = await runtime_scan_defaults(db)
-    clamav_config = await runtime_clamav_config(db) if "clamav" in selected else None
-    vt_config = await runtime_virustotal_config(db) if "virustotal" in selected else None
-    llm_config = await runtime_llm_agent_config(db) if "llm_agent" in selected else None
     outcomes = await _scan_selected_providers(
+        db,
         version,
         selected,
         defaults,
-        clamav_config=clamav_config,
-        vt_config=vt_config,
-        llm_config=llm_config,
         local_path=local_path,
     )
     virustotal_poll_delay: float | None = None
     for provider, outcome in outcomes.items():
         provider_result = await _get_or_create_provider_result(db, version.id, provider)
-        if provider in LEGACY_PUBLIC_SCAN_PROVIDERS:
+        if provider in get_scan_provider_registry().legacy_public_names:
             _set_provider_result(scan, provider, outcome.passed, outcome.message, outcome.mode)
         _set_review_provider_result(provider_result, provider, outcome)
         if provider == "virustotal":
@@ -251,6 +195,8 @@ async def scan_version(
     from ..services.registry_service import refresh_cache
 
     await refresh_cache(db)
+    if virustotal_poll_delay is None:
+        await _try_auto_publish_after_scan(db, version.id)
     return scan
 
 
@@ -261,9 +207,9 @@ async def mark_scan_pending(
     providers: list[str] | None = None,
 ) -> SecurityScan:
     version, scan = await _get_or_create_scan(db, version_id)
-    for provider in _normalize_providers(providers):
+    for provider in await _selected_scan_providers(db, providers):
         provider_result = await _get_or_create_provider_result(db, version.id, provider)
-        if provider in LEGACY_PUBLIC_SCAN_PROVIDERS:
+        if provider in get_scan_provider_registry().legacy_public_names:
             _set_provider_result(scan, provider, None, "Scan queued", "pending")
         _set_review_provider_result(provider_result, provider, ScanOutcome(None, "Scan queued", "pending"))
         if provider == "virustotal":
@@ -288,54 +234,32 @@ def _can_mark_build_scanning(version: PluginVersion) -> bool:
 
 
 async def _scan_selected_providers(
+    db: AsyncSession,
     version: PluginVersion,
-    selected: set[str],
+    selected: list[str],
     defaults: dict[str, Any],
     *,
-    clamav_config: dict[str, Any] | None,
-    vt_config: dict[str, Any] | None,
-    llm_config: dict[str, Any] | None,
     local_path: Path | None,
 ) -> dict[str, ScanOutcome]:
     outcomes: dict[str, ScanOutcome] = {}
     tasks: dict[str, asyncio.Task[ScanOutcome]] = {}
+    registry = get_scan_provider_registry()
 
-    for provider in SCAN_PROVIDER_ORDER:
+    for provider in registry.names:
         if provider not in selected:
             continue
-        if provider == "clamav":
-            if clamav_config and clamav_config.get("enabled"):
-                tasks[provider] = asyncio.create_task(
-                    _scan_clamav_for_version(version, clamav_config, local_path)
-                )
-            else:
-                outcomes[provider] = ScanOutcome(
-                    defaults["pass_when_unconfigured"],
-                    defaults["message"],
-                    "skipped",
-                )
-        elif provider == "virustotal":
-            if vt_config and vt_config.get("api_key"):
-                tasks[provider] = asyncio.create_task(
-                    _scan_virustotal_for_version(version, vt_config, local_path)
-                )
-            else:
-                outcomes[provider] = ScanOutcome(
-                    defaults["pass_when_unconfigured"],
-                    defaults["message"],
-                    "skipped",
-                )
-        elif provider == "llm_agent":
-            if llm_config and _llm_configured(llm_config):
-                tasks[provider] = asyncio.create_task(
-                    _scan_llm_for_version(version, llm_config, local_path)
-                )
-            else:
-                outcomes[provider] = ScanOutcome(
-                    defaults["pass_when_unconfigured"],
-                    defaults["message"],
-                    "skipped",
-                )
+        definition = registry.get(provider)
+        if definition is None:
+            continue
+        config = await definition.load_config(db)
+        if definition.is_configured(config):
+            tasks[provider] = asyncio.create_task(definition.scan(version, config, local_path))
+        else:
+            outcomes[provider] = ScanOutcome(
+                defaults["pass_when_unconfigured"],
+                defaults["message"],
+                "skipped",
+            )
 
     if tasks:
         providers = list(tasks)
@@ -353,14 +277,14 @@ async def mark_scan_skipped(
 ) -> SecurityScan:
     version, scan = await _get_or_create_scan(db, version_id)
     defaults = await runtime_scan_defaults(db)
-    for provider in _normalize_providers(providers):
+    for provider in await _selected_scan_providers(db, providers):
         provider_result = await _get_or_create_provider_result(db, version.id, provider)
         outcome = ScanOutcome(
             defaults["pass_when_unconfigured"],
             "Manually skipped",
             "skipped",
         )
-        if provider in LEGACY_PUBLIC_SCAN_PROVIDERS:
+        if provider in get_scan_provider_registry().legacy_public_names:
             _set_provider_result(
                 scan,
                 provider,
@@ -424,14 +348,11 @@ async def _get_or_create_provider_result(
     return provider_result
 
 
-def _normalize_providers(providers: list[str] | None) -> set[str]:
-    if not providers:
-        return set(SCAN_PROVIDERS)
-    selected = set(providers)
-    invalid = selected - SCAN_PROVIDERS
-    if invalid:
-        raise ValueError(f"Invalid scan providers: {', '.join(sorted(invalid))}")
-    return selected
+async def _selected_scan_providers(db: AsyncSession, providers: list[str] | None) -> list[str]:
+    registry = get_scan_provider_registry()
+    if providers is None:
+        return registry.validate(await runtime_scan_enabled_providers(db))
+    return registry.validate(providers)
 
 
 def _set_provider_result(
@@ -537,28 +458,6 @@ def _seconds_until(value: datetime) -> float:
     return max(0.0, (aware_value - datetime.now(UTC)).total_seconds())
 
 
-def _next_virustotal_delay(config: dict[str, Any], attempts: int) -> int:
-    base = max(1, int(config["poll_interval_seconds"]))
-    max_interval = max(base, int(config["max_poll_interval_seconds"]))
-    return min(base * (2 ** max(attempts, 0)), max_interval)
-
-
-def _virustotal_timeout_outcome(
-    *,
-    analysis_id: str,
-    attempts: int,
-    max_wait_seconds: int,
-) -> ScanOutcome:
-    return ScanOutcome(
-        False,
-        "VirusTotal scan timed out: analysis did not complete "
-        f"within {max_wait_seconds} seconds after {attempts} polls, analysis_id={analysis_id}",
-        "error",
-        virustotal_analysis_id=analysis_id,
-        virustotal_poll_attempts=attempts,
-    )
-
-
 async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> SecurityScan:
     version, scan = await _get_or_create_scan(db, version_id)
     provider_result = await _get_or_create_provider_result(db, version.id, "virustotal")
@@ -585,6 +484,7 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
         await db.commit()
         await db.refresh(scan)
         await _refresh_registry_cache(db)
+        await _try_auto_publish_after_scan(db, version.id)
         return scan
 
     now = datetime.now(UTC)
@@ -593,7 +493,7 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
     deadline = deadline or now + timedelta(seconds=max_wait_seconds)
     attempts_so_far = max(provider_result.attempts or 0, scan.virustotal_poll_attempts or 0)
     if now >= deadline:
-        outcome = _virustotal_timeout_outcome(
+        outcome = virustotal_timeout_outcome(
             analysis_id=analysis_id,
             attempts=attempts_so_far,
             max_wait_seconds=max_wait_seconds,
@@ -607,20 +507,21 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
         await db.commit()
         await db.refresh(scan)
         await _refresh_registry_cache(db)
+        await _try_auto_publish_after_scan(db, version.id)
         return scan
 
-    outcome = await _poll_virustotal_analysis(analysis_id, config)
+    outcome = await poll_virustotal_analysis_once(analysis_id, config)
     if outcome.mode == "pending":
         attempts = attempts_so_far + 1
         max_attempts = max(1, int(config["max_poll_attempts"]))
         if attempts >= max_attempts:
-            outcome = _virustotal_timeout_outcome(
+            outcome = virustotal_timeout_outcome(
                 analysis_id=analysis_id,
                 attempts=attempts,
                 max_wait_seconds=max_wait_seconds,
             )
         else:
-            delay = _next_virustotal_delay(config, attempts)
+            delay = next_virustotal_delay(config, attempts)
             next_poll_at = min(now + timedelta(seconds=delay), deadline)
             outcome = ScanOutcome(
                 None,
@@ -653,6 +554,8 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
             delay_seconds=_seconds_until(outcome.virustotal_next_poll_at),
         )
     await _refresh_registry_cache(db)
+    if outcome.mode != "pending":
+        await _try_auto_publish_after_scan(db, version.id)
     return scan
 
 
@@ -662,477 +565,25 @@ async def _refresh_registry_cache(db: AsyncSession) -> None:
     await refresh_cache(db)
 
 
-def _llm_configured(config: dict[str, Any]) -> bool:
-    return bool(config.get("enabled") and config.get("base_url") and config.get("model") and config.get("api_key"))
+async def _try_auto_publish_after_scan(db: AsyncSession, version_id: uuid.UUID) -> bool:
+    policy = await runtime_review_policy(db)
+    if not policy["auto_publish"] or policy["require_human_review"]:
+        return False
 
+    version = await db.get(PluginVersion, version_id)
+    if version is None:
+        return False
 
-async def _scan_virustotal_for_version(
-    version: PluginVersion,
-    vt_config: dict[str, Any],
-    local_path: Path | None,
-) -> ScanOutcome:
-    if local_path is not None:
-        return await _scan_virustotal(local_path, vt_config)
+    from ..services.errors import InvalidStateError, NotFoundError, ValidationError
+    from ..services.plugin_service import publish_plugin_version
 
-    if not version.s3_key:
-        return ScanOutcome(False, "VirusTotal scan failed: version artifact is missing", "error")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        artifact_path = Path(tmp) / f"{version.id}.zip"
-        try:
-            await download_file(version.s3_key, artifact_path)
-        except Exception as exc:
-            return ScanOutcome(False, f"VirusTotal scan failed: could not download artifact: {exc}", "error")
-        return await _scan_virustotal(artifact_path, vt_config)
-
-
-async def _scan_clamav_for_version(
-    version: PluginVersion,
-    config: dict[str, Any],
-    local_path: Path | None,
-) -> ScanOutcome:
-    if local_path is not None:
-        return await _scan_clamav(local_path, config)
-
-    if not version.s3_key:
-        return ScanOutcome(False, "ClamAV scan failed: version artifact is missing", "error")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        artifact_path = Path(tmp) / f"{version.id}.zip"
-        try:
-            await download_file(version.s3_key, artifact_path)
-        except Exception as exc:
-            return ScanOutcome(False, f"ClamAV scan failed: could not download artifact: {exc}", "error")
-        return await _scan_clamav(artifact_path, config)
-
-
-async def _scan_clamav(local_path: Path, config: dict[str, Any]) -> ScanOutcome:
-    file_size = local_path.stat().st_size
-    max_stream_bytes = max(1, int(config["max_stream_bytes"]))
-    if file_size > max_stream_bytes:
-        return ScanOutcome(
-            False,
-            f"ClamAV scan failed: file exceeds stream limit ({file_size} > {max_stream_bytes} bytes)",
-            "error",
+    try:
+        await publish_plugin_version(
+            db,
+            version.plugin_id,
+            version.id,
+            review_status="skipped",
         )
-
-    timeout = max(1, int(config["timeout_seconds"]))
-    chunk_size = max(1, int(config["stream_chunk_bytes"]))
-    host = str(config["host"])
-    port = int(config["port"])
-
-    try:
-        reply = await asyncio.wait_for(
-            _clamav_instream(host, port, local_path, chunk_size),
-            timeout=timeout,
-        )
-    except TimeoutError:
-        return ScanOutcome(False, f"ClamAV scan failed: timed out after {timeout} seconds", "error")
-    except OSError as exc:
-        return ScanOutcome(False, f"ClamAV scan failed: {exc}", "error")
-
-    return _format_clamav_reply(reply)
-
-
-async def _clamav_instream(host: str, port: int, local_path: Path, chunk_size: int) -> str:
-    reader, writer = await asyncio.open_connection(host, port)
-    try:
-        writer.write(b"zINSTREAM\0")
-        with open(local_path, "rb") as artifact:
-            while chunk := artifact.read(chunk_size):
-                writer.write(struct.pack(">I", len(chunk)))
-                writer.write(chunk)
-                await writer.drain()
-        writer.write(struct.pack(">I", 0))
-        await writer.drain()
-        data = await reader.read(4096)
-    finally:
-        writer.close()
-        await writer.wait_closed()
-    return data.decode("utf-8", errors="replace").replace("\x00", "").strip()
-
-
-def _format_clamav_reply(reply: str) -> ScanOutcome:
-    normalized = reply.strip()
-    if not normalized:
-        return ScanOutcome(False, "ClamAV scan failed: empty response", "error")
-    if normalized.endswith(" OK"):
-        return ScanOutcome(True, f"ClamAV passed: {normalized}", "real")
-    if " FOUND" in normalized:
-        return ScanOutcome(False, f"ClamAV detected malware: {normalized}", "real")
-    if " ERROR" in normalized or normalized.startswith("ERROR"):
-        return ScanOutcome(False, f"ClamAV scan failed: {normalized}", "error")
-    return ScanOutcome(False, f"ClamAV scan failed: unexpected response: {normalized}", "error")
-
-
-async def _scan_llm_for_version(
-    version: PluginVersion,
-    config: dict[str, Any],
-    local_path: Path | None,
-) -> ScanOutcome:
-    if local_path is not None:
-        return await _scan_llm(local_path, config)
-
-    if not version.s3_key:
-        return ScanOutcome(False, "LLM scan failed: version artifact is missing", "error")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        artifact_path = Path(tmp) / f"{version.id}.zip"
-        try:
-            await download_file(version.s3_key, artifact_path)
-        except Exception as exc:
-            return ScanOutcome(False, f"LLM scan failed: could not download artifact: {exc}", "error")
-        return await _scan_llm(artifact_path, config)
-
-
-async def _scan_llm(local_path: Path, config: dict[str, Any]) -> ScanOutcome:
-    try:
-        context, truncated = _build_llm_context(local_path, int(config["max_context_chars"]))
-        response = await _call_llm_agent(context, truncated, config)
-        result = _parse_llm_response(response)
-    except (OSError, zipfile.BadZipFile, KeyError, TypeError, ValueError) as exc:
-        return ScanOutcome(False, f"LLM scan failed: {exc}", "error")
-    except httpx.HTTPStatusError as exc:
-        return ScanOutcome(False, f"LLM scan failed: HTTP {exc.response.status_code}", "error")
-    except httpx.HTTPError as exc:
-        return ScanOutcome(False, f"LLM scan failed: {exc}", "error")
-
-    risk_level = str(result.get("risk_level") or "unknown").lower()
-    passed = bool(result.get("pass")) and risk_level not in LLM_RISK_FAIL_LEVELS
-    summary = str(result.get("summary") or "").strip()
-    findings = result.get("findings") if isinstance(result.get("findings"), list) else []
-    message = json.dumps(
-        {
-            "pass": passed,
-            "risk_level": risk_level,
-            "summary": summary,
-            "findings": findings[:10],
-            "context_truncated": truncated,
-            "model": config["model"],
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    return ScanOutcome(passed, message, "real")
-
-
-def _build_llm_context(local_path: Path, max_chars: int) -> tuple[str, bool]:
-    max_chars = max(1000, max_chars)
-    sections: list[str] = []
-    total_files = 0
-    included_files = 0
-    skipped_files = 0
-    with zipfile.ZipFile(local_path) as zf:
-        infos = [info for info in zf.infolist() if not info.is_dir()]
-        total_files = len(infos)
-        sections.append(f"Archive: {local_path.name}")
-        sections.append(f"Total files: {total_files}")
-        for info in infos:
-            path = info.filename
-            name = Path(path).name.lower()
-            suffix = Path(path).suffix.lower()
-            should_include = (
-                name in LLM_RELEVANT_NAMES
-                or suffix in LLM_RELEVANT_SUFFIXES
-                or any(term in path.lower() for term in ("main", "plugin", "handler", "service"))
-            )
-            if not should_include:
-                skipped_files += 1
-                continue
-            try:
-                raw = zf.read(info, pwd=None)
-                text = raw.decode("utf-8", errors="replace")
-            except RuntimeError:
-                skipped_files += 1
-                continue
-            included_files += 1
-            sections.append(_format_llm_file_section(path, text))
-
-        suspicious = _collect_suspicious_snippets(zf, infos)
-        if suspicious:
-            sections.append("Suspicious snippets:")
-            sections.extend(suspicious)
-
-    sections.insert(2, f"Included files: {included_files}; skipped binary/irrelevant files: {skipped_files}")
-    context = "\n\n".join(sections)
-    if len(context) <= max_chars:
-        return context, False
-    notice = (
-        f"[Context truncated to {max_chars} characters from {len(context)} characters. "
-        "Some files or snippets are omitted.]\n\n"
-    )
-    return notice + context[: max_chars - len(notice)], True
-
-
-def _format_llm_file_section(path: str, text: str) -> str:
-    max_file_chars = 4000
-    truncated = len(text) > max_file_chars
-    body = text[:max_file_chars]
-    if truncated:
-        body += "\n[File truncated]"
-    return f"File: {path}\n```text\n{body}\n```"
-
-
-def _collect_suspicious_snippets(
-    zf: zipfile.ZipFile,
-    infos: list[zipfile.ZipInfo],
-) -> list[str]:
-    snippets: list[str] = []
-    for info in infos:
-        if len(snippets) >= 20:
-            break
-        suffix = Path(info.filename).suffix.lower()
-        if suffix not in LLM_RELEVANT_SUFFIXES:
-            continue
-        try:
-            text = zf.read(info).decode("utf-8", errors="replace")
-        except RuntimeError:
-            continue
-        lower = text.lower()
-        if not any(term in lower for term in LLM_SUSPICIOUS_TERMS):
-            continue
-        lines = text.splitlines()
-        matched: list[str] = []
-        for idx, line in enumerate(lines):
-            if any(term in line.lower() for term in LLM_SUSPICIOUS_TERMS):
-                start = max(0, idx - 2)
-                end = min(len(lines), idx + 3)
-                matched.extend(f"{line_no + 1}: {lines[line_no]}" for line_no in range(start, end))
-                break
-        snippets.append(f"File: {info.filename}\n" + "\n".join(matched[:8]))
-    return snippets
-
-
-async def _call_llm_agent(context: str, truncated: bool, config: dict[str, Any]) -> str:
-    base_url = str(config["base_url"]).rstrip("/")
-    url = f"{base_url}/chat/completions"
-    payload = {
-        "model": config["model"],
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a security reviewer for AstrBot plugin submissions. "
-                    "Return exactly one strict JSON object and nothing else. Do not wrap it in markdown, "
-                    "do not include code fences, comments, prose, or explanations outside the JSON object. "
-                    "The JSON object must use keys: pass(boolean), risk_level("
-                    "none|low|medium|high|critical), summary(string), findings(array). "
-                    "Findings items should include severity, category, file, reason, recommendation. "
-                    "Focus on malware, credential theft, unsafe code execution, hidden network behavior, "
-                    "data exfiltration, and behavior inconsistent with metadata."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Context truncated: {truncated}. If truncated, mention that confidence is limited.\n\n"
-                    f"{context}"
-                ),
-            },
-        ],
-    }
-    headers = {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=120) as client:
-        response = await client.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-    data = response.json()
-    return str(data["choices"][0]["message"]["content"])
-
-
-def _parse_llm_response(raw: str) -> dict[str, Any]:
-    data = json.loads(_extract_json_object(raw))
-    if not isinstance(data, dict):
-        raise ValueError("LLM response is not a JSON object")
-    if "pass" not in data or "risk_level" not in data:
-        raise ValueError("LLM response is missing required keys")
-    return data
-
-
-def _extract_json_object(raw: str) -> str:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    if text.startswith("{") and text.endswith("}"):
-        return text
-
-    start = text.find("{")
-    if start < 0:
-        raise ValueError("LLM response does not contain a JSON object")
-
-    depth = 0
-    in_string = False
-    escape = False
-    for index in range(start, len(text)):
-        char = text[index]
-        if escape:
-            escape = False
-            continue
-        if char == "\\":
-            escape = True
-            continue
-        if char == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : index + 1]
-
-    raise ValueError("LLM response contains an incomplete JSON object")
-
-
-async def _scan_virustotal(local_path: Path, vt_config: dict[str, Any]) -> ScanOutcome:
-    max_direct_upload_bytes = int(vt_config["max_direct_upload_bytes"])
-    file_size = local_path.stat().st_size
-    if max_direct_upload_bytes > 0 and file_size > max_direct_upload_bytes:
-        return ScanOutcome(
-            False,
-            "VirusTotal scan failed: file exceeds direct upload limit "
-            f"({file_size} > {max_direct_upload_bytes} bytes)",
-            "error",
-        )
-
-    headers = {"x-apikey": str(vt_config["api_key"])}
-    timeout = max(1, int(vt_config["timeout_seconds"]))
-    max_wait_seconds = max(1, int(vt_config["max_wait_seconds"]))
-
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            file_sha256 = _sha256_file(local_path)
-            existing_stats = await _get_virustotal_file_report(client, headers, file_sha256)
-            if existing_stats is not None:
-                return _format_virustotal_result(existing_stats, f"file:{file_sha256}")
-
-            try:
-                analysis_id = await _upload_to_virustotal(client, headers, local_path)
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code != 409:
-                    raise
-                existing_stats = await _get_virustotal_file_report(client, headers, file_sha256)
-                if existing_stats is not None:
-                    return _format_virustotal_result(existing_stats, f"file:{file_sha256}")
-                raise
-
-            now = datetime.now(UTC)
-            deadline = now + timedelta(seconds=max_wait_seconds)
-            next_poll_at = min(
-                now + timedelta(seconds=_next_virustotal_delay(vt_config, 0)),
-                deadline,
-            )
-            return ScanOutcome(
-                None,
-                "VirusTotal analysis pending: "
-                f"analysis_id={analysis_id}, next_poll_at={next_poll_at.isoformat()}, "
-                f"deadline_at={deadline.isoformat()}",
-                "pending",
-                virustotal_analysis_id=analysis_id,
-                virustotal_file_sha256=file_sha256,
-                virustotal_submitted_at=now,
-                virustotal_deadline_at=deadline,
-                virustotal_next_poll_at=next_poll_at,
-                virustotal_poll_attempts=0,
-            )
-    except httpx.HTTPStatusError as exc:
-        return ScanOutcome(False, f"VirusTotal scan failed: HTTP {exc.response.status_code}", "error")
-    except httpx.HTTPError as exc:
-        return ScanOutcome(False, f"VirusTotal scan failed: {exc}", "error")
-    except (KeyError, TypeError, ValueError) as exc:
-        return ScanOutcome(False, f"VirusTotal scan failed: invalid response: {exc}", "error")
-
-
-async def _poll_virustotal_analysis(analysis_id: str, vt_config: dict[str, Any]) -> ScanOutcome:
-    headers = {"x-apikey": str(vt_config["api_key"])}
-    timeout = max(1, int(vt_config["timeout_seconds"]))
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(
-                f"{VIRUSTOTAL_API_BASE_URL}/analyses/{analysis_id}",
-                headers=headers,
-            )
-            response.raise_for_status()
-            data = response.json().get("data") or {}
-            attributes = data.get("attributes") or {}
-            status = str(attributes.get("status") or "unknown")
-            if status == "completed":
-                return _format_virustotal_result(attributes.get("stats") or {}, analysis_id)
-            return ScanOutcome(
-                None,
-                f"VirusTotal analysis pending: status={status}, analysis_id={analysis_id}",
-                "pending",
-                virustotal_analysis_id=analysis_id,
-            )
-    except httpx.HTTPStatusError as exc:
-        return ScanOutcome(False, f"VirusTotal scan failed: HTTP {exc.response.status_code}", "error")
-    except httpx.HTTPError as exc:
-        return ScanOutcome(False, f"VirusTotal scan failed: {exc}", "error")
-    except (KeyError, TypeError, ValueError) as exc:
-        return ScanOutcome(False, f"VirusTotal scan failed: invalid response: {exc}", "error")
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as artifact:
-        for chunk in iter(lambda: artifact.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-async def _get_virustotal_file_report(
-    client: httpx.AsyncClient,
-    headers: dict[str, str],
-    file_sha256: str,
-) -> dict[str, Any] | None:
-    response = await client.get(
-        f"{VIRUSTOTAL_API_BASE_URL}/files/{file_sha256}",
-        headers=headers,
-    )
-    if response.status_code == 404:
-        return None
-    response.raise_for_status()
-    data = response.json().get("data") or {}
-    attributes = data.get("attributes") or {}
-    stats = attributes.get("last_analysis_stats")
-    if not isinstance(stats, dict):
-        return None
-    return stats
-
-
-async def _upload_to_virustotal(
-    client: httpx.AsyncClient,
-    headers: dict[str, str],
-    local_path: Path,
-) -> str:
-    with open(local_path, "rb") as artifact:
-        response = await client.post(
-            f"{VIRUSTOTAL_API_BASE_URL}/files",
-            headers=headers,
-            files={"file": (local_path.name, artifact, "application/zip")},
-        )
-    response.raise_for_status()
-    data = response.json()
-    return str(data["data"]["id"])
-
-
-def _format_virustotal_result(stats: dict[str, Any], analysis_id: str) -> ScanOutcome:
-    malicious = int(stats.get("malicious") or 0)
-    suspicious = int(stats.get("suspicious") or 0)
-    harmless = int(stats.get("harmless") or 0)
-    undetected = int(stats.get("undetected") or 0)
-    passed = malicious == 0 and suspicious == 0
-    status = "passed" if passed else "failed"
-    message = (
-        f"VirusTotal {status}: malicious={malicious}, suspicious={suspicious}, "
-        f"harmless={harmless}, undetected={undetected}, analysis_id={analysis_id}"
-    )
-    return ScanOutcome(passed, message, "real", virustotal_analysis_id=analysis_id)
+    except (InvalidStateError, NotFoundError, ValidationError):
+        return False
+    return True

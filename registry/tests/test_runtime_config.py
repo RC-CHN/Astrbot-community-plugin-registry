@@ -1,7 +1,7 @@
 import pytest
 
 from astrbot_registry.services import runtime_config
-from astrbot_registry.services.runtime_config import cast_runtime_value, get_runtime_values
+from astrbot_registry.services.runtime_config import cast_runtime_value, get_runtime_values, normalize_scan_provider_list
 
 
 class FakeRedis:
@@ -30,6 +30,11 @@ def test_cast_runtime_values() -> None:
         "git.example.com",
     ]
     assert cast_runtime_value("value", "", str) == "value"
+
+
+def test_normalize_scan_provider_list() -> None:
+    assert normalize_scan_provider_list(["virustotal", "clamav", "unknown"]) == ["clamav", "virustotal"]
+    assert normalize_scan_provider_list(["none"]) == []
 
 
 @pytest.mark.asyncio
