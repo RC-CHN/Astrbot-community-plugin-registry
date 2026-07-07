@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: clamav
+  labels:
+    app.kubernetes.io/name: astrbot-community-plugin-registry
+    app.kubernetes.io/component: clamav
+    app.kubernetes.io/part-of: astrbot-registry
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: astrbot-community-plugin-registry
+    app.kubernetes.io/component: clamav
+  ports:
+    - name: clamd
+      port: 3310
+      targetPort: clamd
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clamav-data
+  labels:
+    app.kubernetes.io/name: astrbot-community-plugin-registry
+    app.kubernetes.io/component: clamav
+    app.kubernetes.io/part-of: astrbot-registry
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clamav
+  labels:
+    app.kubernetes.io/name: astrbot-community-plugin-registry
+    app.kubernetes.io/component: clamav
+    app.kubernetes.io/part-of: astrbot-registry
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: astrbot-community-plugin-registry
+      app.kubernetes.io/component: clamav
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: astrbot-community-plugin-registry
+        app.kubernetes.io/component: clamav
+        app.kubernetes.io/part-of: astrbot-registry
+    spec:
+      containers:
+        - name: clamav
+          image: clamav/clamav:stable
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: clamd
+              containerPort: 3310
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clamav
+          startupProbe:
+            tcpSocket:
+              port: clamd
+            failureThreshold: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: clamd
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: clamd
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: clamav-data

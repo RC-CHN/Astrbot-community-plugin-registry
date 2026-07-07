@@ -147,19 +147,34 @@ References:
 
 ## Scan Policy
 
-Default production policy:
+Default production recording policy:
 
 ```env
 SCAN_PASS_WHEN_UNCONFIGURED=false
 ```
 
-This blocks publishing when automatic scans are unavailable or not configured. If automatic scanning is intentionally disabled to save resources, set:
+There is no fixed required-provider list. Publishing is blocked only by existing scan results that are `pending`, `error`, or real failed results; skipped unconfigured providers do not block publishing. `SCAN_PASS_WHEN_UNCONFIGURED` only controls the recorded `pass` value when an unconfigured provider is triggered. To show skipped results as passing, set:
 
 ```env
 SCAN_PASS_WHEN_UNCONFIGURED=true
 ```
 
-In that mode, publishing should rely on manual review and admin workflow controls.
+When automatic scanning is disabled, publishing should rely on manual review and admin workflow controls regardless of this value.
+
+Optional self-hosted ClamAV scanning uses a Compose profile and is not started by default:
+
+```bash
+docker compose --env-file .env -f compose.yml --profile clamav up -d clamav
+docker compose --env-file .env -f compose.yml up -d backend worker
+```
+
+Also set these values in `.env`:
+
+```env
+CLAMAV_ENABLED=true
+CLAMAV_HOST=clamav
+CLAMAV_PORT=3310
+```
 
 ## Kubernetes
 

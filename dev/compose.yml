@@ -35,6 +35,12 @@ x-backend-env: &backend-env
   BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-admin123456}
   BOOTSTRAP_ADMIN_ROLE: admin
   VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
+  CLAMAV_ENABLED: ${CLAMAV_ENABLED:-false}
+  CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+  CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+  CLAMAV_TIMEOUT_SECONDS: ${CLAMAV_TIMEOUT_SECONDS:-120}
+  CLAMAV_STREAM_CHUNK_BYTES: ${CLAMAV_STREAM_CHUNK_BYTES:-1048576}
+  CLAMAV_MAX_STREAM_BYTES: ${CLAMAV_MAX_STREAM_BYTES:-104857600}
   LLM_AGENT_ENABLED: ${LLM_AGENT_ENABLED:-false}
   LLM_AGENT_BASE_URL: ${LLM_AGENT_BASE_URL:-}
   LLM_AGENT_MODEL: ${LLM_AGENT_MODEL:-}
@@ -103,6 +109,18 @@ services:
       timeout: 5s
       retries: 5
 
+  clamav:
+    image: ${CLAMAV_IMAGE:-clamav/clamav:stable}
+    container_name: ${CLAMAV_CONTAINER_NAME:-astrbot-registry-dev-clamav}
+    restart: unless-stopped
+    profiles: ["clamav"]
+    volumes:
+      - clamav_data:/var/lib/clamav
+    expose:
+      - "3310"
+    mem_limit: ${CLAMAV_MEM_LIMIT:-1536m}
+    cpus: "${CLAMAV_CPUS:-1.0}"
+
   backend:
     image: ${BACKEND_IMAGE:-astrbot-registry-dev-backend}
     build:
@@ -167,3 +185,5 @@ volumes:
     name: ${REDIS_VOLUME_NAME:-astrbot-registry-dev-redis-data}
   s3_data:
     name: ${S3_VOLUME_NAME:-astrbot-registry-dev-s3-data}
+  clamav_data:
+    name: ${CLAMAV_VOLUME_NAME:-astrbot-registry-dev-clamav-data}

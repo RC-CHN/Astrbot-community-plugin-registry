@@ -9,6 +9,7 @@ resources:
   - postgres.yaml
   - redis.yaml
   - seaweedfs.yaml
+  - clamav.yaml
   - backend.yaml
   - worker.yaml
   - dashboard.yaml
@@ -21,3 +22,5 @@ images:
     newTag: latest
   - name: ghcr.io/rc-chn/astrbot-community-plugin-registry-dashboard
     newTag: latest
+  - name: clamav/clamav
+    newTag: stable

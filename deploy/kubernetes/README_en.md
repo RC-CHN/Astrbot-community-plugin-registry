@@ -16,6 +16,7 @@ Chinese version: [README.md](README.md)
 - `configmap.yaml`: non-secret runtime configuration.
 - `secret.example.yaml`: secret template; it is not included by `kustomization.yaml`.
 - `postgres.yaml`, `redis.yaml`, `seaweedfs.yaml`: bundled dependencies.
+- `clamav.yaml`: optional self-hosted ClamAV scanner, default `replicas: 0`.
 - `backend.yaml`, `worker.yaml`, `dashboard.yaml`: application components.
 - `ingress.yaml`: generic Ingress, with no default IngressClass or TLS.
 
@@ -62,6 +63,8 @@ If you need a fixed StorageClass, add this under `volumeClaimTemplates[].spec` i
 storageClassName: <your-storage-class>
 ```
 
+If you enable ClamAV, also add the same `storageClassName` to `PersistentVolumeClaim.spec` in `clamav.yaml`.
+
 Edit `secret.yaml` and replace at least:
 
 - `PG_PASSWORD`
@@ -104,6 +107,12 @@ kubectl -n astrbot-registry rollout status deployment/worker
 kubectl -n astrbot-registry rollout status deployment/dashboard
 ```
 
+If ClamAV is enabled:
+
+```bash
+kubectl -n astrbot-registry rollout status deployment/clamav
+```
+
 Health check:
 
 ```bash
@@ -142,16 +151,32 @@ kubectl apply -k .
 
 ## Scanning Policy
 
-Production default:
+Default production recording policy:
 
 ```yaml
 SCAN_PASS_WHEN_UNCONFIGURED: "false"
 ```
 
-This blocks publishing when automatic scanners are not configured. If scanning is intentionally disabled to save resources, change it in `configmap.yaml`:
+There is no fixed required-provider list. Publishing is blocked only by existing scan results that are `pending`, `error`, or real failed results; skipped unconfigured providers do not block publishing. `SCAN_PASS_WHEN_UNCONFIGURED` only controls the recorded `pass` value when an unconfigured provider is triggered. To show skipped results as passing, change it in `configmap.yaml`:
 
 ```yaml
 SCAN_PASS_WHEN_UNCONFIGURED: "true"
+```
+
+To enable ClamAV, update `configmap.yaml`:
+
+```yaml
+CLAMAV_ENABLED: "true"
+CLAMAV_HOST: "clamav"
+CLAMAV_PORT: "3310"
+```
+
+Then change `Deployment.spec.replicas` in `clamav.yaml` to `1` and apply:
+
+```bash
+kubectl apply -k .
+kubectl -n astrbot-registry rollout status deployment/clamav
+kubectl -n astrbot-registry rollout restart deployment/backend deployment/worker
 ```
 
 When enabling LLM or VirusTotal scanning, update provider settings in `configmap.yaml`, API keys in `secret.yaml`, then restart backend and worker:

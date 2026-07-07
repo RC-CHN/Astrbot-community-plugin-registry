@@ -48,10 +48,13 @@ Required production changes:
 - Set `TRUSTED_HOSTS` to the public domain/IP, for example
   `registry.example.com`, and set `HEALTHCHECK_HOST` to one trusted host.
 - Set `DOCS_ENABLED=false` and keep `BOOTSTRAP_API_ENABLED=false`.
-- Choose the scan policy deliberately. `SCAN_PASS_WHEN_UNCONFIGURED=false`
-  enforces configured scan providers before publish. Keeping it `true` is useful
-  when automated scans are too costly, but then reviewers must treat scan results
-  as advisory/manual-gated rather than a hard security control.
+- Choose the scan policy deliberately. There is no fixed required-provider list:
+  existing pending/error/failed scan results block publishing, while skipped
+  providers do not. `SCAN_PASS_WHEN_UNCONFIGURED` controls the displayed `pass`
+  value for unconfigured skipped providers.
+- Optional ClamAV scanning is available through the `clamav` Compose profile:
+  set `CLAMAV_ENABLED=true`, keep `CLAMAV_HOST=clamav`, then run
+  `docker compose --profile clamav up -d clamav backend worker`.
 - Keep `GITHUB_WEBHOOK_REQUIRE_SECRET=true` and configure
   `GITHUB_WEBHOOK_SECRET` before enabling GitHub webhooks.
 - Terminate TLS at the public reverse proxy. If this nginx container is the TLS

@@ -147,19 +147,34 @@ Let's Encrypt 当前通过 `shortlived` profile 支持 IP 地址证书；该 pro
 
 ## 扫描策略
 
-默认生产策略：
+默认生产记录策略：
 
 ```env
 SCAN_PASS_WHEN_UNCONFIGURED=false
 ```
 
-这表示自动扫描未配置或不可用时，不允许直接发布。若你明确希望关闭自动扫描以节省资源，可以改成：
+当前没有固定“必需 provider”。发布只会被已有扫描结果中的 `pending`、`error` 或真实失败阻塞；未配置 provider 被跳过时不会阻塞发布。`SCAN_PASS_WHEN_UNCONFIGURED` 只控制未配置 provider 被触发时记录的 `pass` 值。若希望 skipped 结果在展示上显示为通过，可以改成：
 
 ```env
 SCAN_PASS_WHEN_UNCONFIGURED=true
 ```
 
-这种模式下，发布前需要依赖人工审核和管理流程兜底。
+无论该值如何，关闭自动扫描时都应依赖人工审核和管理流程兜底。
+
+可选 ClamAV 自托管扫描使用 Compose profile，不会默认启动：
+
+```bash
+docker compose --env-file .env -f compose.yml --profile clamav up -d clamav
+docker compose --env-file .env -f compose.yml up -d backend worker
+```
+
+同时在 `.env` 中设置：
+
+```env
+CLAMAV_ENABLED=true
+CLAMAV_HOST=clamav
+CLAMAV_PORT=3310
+```
 
 ## Kubernetes
 

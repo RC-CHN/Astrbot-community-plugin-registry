@@ -16,6 +16,7 @@ English version: [README_en.md](README_en.md)
 - `configmap.yaml`：非敏感运行配置。
 - `secret.example.yaml`：敏感配置示例，不会被 `kustomization.yaml` 自动引用。
 - `postgres.yaml`、`redis.yaml`、`seaweedfs.yaml`：内置依赖。
+- `clamav.yaml`：可选自托管 ClamAV 扫描服务，默认 `replicas: 0`。
 - `backend.yaml`、`worker.yaml`、`dashboard.yaml`：应用组件。
 - `ingress.yaml`：通用 Ingress 入口，默认不指定 IngressClass 或 TLS。
 
@@ -62,6 +63,8 @@ spec:
 storageClassName: <your-storage-class>
 ```
 
+如果启用 ClamAV，也给 `clamav.yaml` 的 `PersistentVolumeClaim.spec` 添加同样的 `storageClassName`。
+
 编辑 `secret.yaml`，至少替换：
 
 - `PG_PASSWORD`
@@ -104,6 +107,12 @@ kubectl -n astrbot-registry rollout status deployment/worker
 kubectl -n astrbot-registry rollout status deployment/dashboard
 ```
 
+如果启用了 ClamAV：
+
+```bash
+kubectl -n astrbot-registry rollout status deployment/clamav
+```
+
 健康检查：
 
 ```bash
@@ -142,16 +151,32 @@ kubectl apply -k .
 
 ## 扫描策略
 
-生产默认：
+生产默认记录策略：
 
 ```yaml
 SCAN_PASS_WHEN_UNCONFIGURED: "false"
 ```
 
-这表示自动扫描未配置时不会放行发布。如果为了节省资源明确关闭扫描，可以在 `configmap.yaml` 中改为：
+当前没有固定“必需 provider”。发布只会被已有扫描结果中的 `pending`、`error` 或真实失败阻塞；未配置 provider 被跳过时不会阻塞发布。`SCAN_PASS_WHEN_UNCONFIGURED` 只控制未配置 provider 被触发时记录的 `pass` 值。如果希望 skipped 结果在展示上显示为通过，可以在 `configmap.yaml` 中改为：
 
 ```yaml
 SCAN_PASS_WHEN_UNCONFIGURED: "true"
+```
+
+启用 ClamAV 时，修改 `configmap.yaml`：
+
+```yaml
+CLAMAV_ENABLED: "true"
+CLAMAV_HOST: "clamav"
+CLAMAV_PORT: "3310"
+```
+
+然后把 `clamav.yaml` 中 `Deployment.spec.replicas` 改为 `1`，再应用：
+
+```bash
+kubectl apply -k .
+kubectl -n astrbot-registry rollout status deployment/clamav
+kubectl -n astrbot-registry rollout restart deployment/backend deployment/worker
 ```
 
 启用 LLM 或 VirusTotal 扫描时，分别更新 `configmap.yaml` 中的 provider 设置和 `secret.yaml` 中的 API key，然后重启 backend/worker：
