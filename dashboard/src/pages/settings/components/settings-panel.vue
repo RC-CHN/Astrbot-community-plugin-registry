@@ -77,7 +77,7 @@ defineEmits<{
 
 .section-head {
   align-items: flex-start;
-  border-bottom: 1px solid #e5edf5;
+  border-bottom: 1px solid var(--divider);
   display: flex;
   gap: 16px;
   justify-content: space-between;
@@ -111,7 +111,7 @@ defineEmits<{
 }
 
 .settings-group + .settings-group {
-  border-top: 1px solid #e5edf5;
+  border-top: 1px solid var(--divider);
   margin-top: 20px;
   padding-top: 18px;
 }
@@ -124,7 +124,7 @@ defineEmits<{
 }
 
 .group-head h3 {
-  color: #202938;
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 700;
   line-height: 20px;
@@ -132,14 +132,14 @@ defineEmits<{
 }
 
 .group-head p {
-  color: #7a8696;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.55;
   margin: 0;
 }
 
 .field-list {
-  border-top: 1px solid #cfd8e3;
+  border-top: 1px solid var(--border);
   display: grid;
   min-width: 0;
 }

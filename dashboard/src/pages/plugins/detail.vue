@@ -12,21 +12,16 @@
     <template #actions>
       <n-button @click="router.back()">返回</n-button>
       <n-button v-if="plugin?.status === 'pending'" type="primary" @click="approvePluginOnly">
-        仅标记审核通过
+        标记人工审核通过
       </n-button>
-      <n-popconfirm
+      <n-button
         v-if="plugin?.status === 'pending' && latestCandidate"
-        positive-text="确认跳过"
-        negative-text="取消"
-        @positive-click="skipReviewAndPublish"
+        type="primary"
+        :disabled="publishCandidateBlockers.length > 0"
+        @click="openPublishConfirm"
       >
-        <template #trigger>
-          <n-button type="warning" secondary :disabled="publishCandidateBlockers.length > 0">
-            跳过人工审核并发布
-          </n-button>
-        </template>
-        这只跳过人工审核，不会跳过构建和安全扫描。确认后会公开当前版本。
-      </n-popconfirm>
+        发布当前版本
+      </n-button>
       <n-button v-if="plugin?.status === 'active'" secondary @click="setPluginStatus('disabled')">
         禁用
       </n-button>
@@ -86,7 +81,7 @@
             </div>
             <div>
               <strong>发布</strong>
-              <span>要求候选版本构建成功且扫描无阻断；成功后会启用插件，并把该版本设为插件源当前公开版本。</span>
+              <span>要求候选版本构建成功且扫描无阻断；成功后会启用插件，并把该版本设为插件源当前版本。</span>
             </div>
             <div>
               <strong>跳过人工审核</strong>
@@ -94,7 +89,7 @@
             </div>
           </div>
           <publish-blocker-alert :blockers="publishCandidateBlockers" />
-          <n-empty v-if="!publishCandidateBlockers.length" description="当前候选版本可以发布" />
+          <n-empty v-if="!publishCandidateBlockers.length" description="当前候选版本可以公开" />
         </div>
       </section>
 
@@ -122,6 +117,30 @@
       />
     </template>
   </n-spin>
+
+  <n-modal v-model:show="publishConfirmVisible" preset="card" title="发布当前版本" class="publish-confirm-modal">
+    <div class="publish-confirm">
+      <p>此操作将把当前版本设为 AstrBot 插件源返回的版本。</p>
+      <ul>
+        <li>标记插件为可公开</li>
+        <li>标记当前版本为发布候选</li>
+        <li>将当前版本设为插件源当前版本</li>
+      </ul>
+      <n-radio-group v-model:value="publishReviewStatus" class="publish-review-options">
+        <n-radio value="approved">标记人工审核通过并发布</n-radio>
+        <n-radio value="skipped">跳过人工审核并发布</n-radio>
+      </n-radio-group>
+      <p class="publish-confirm-note">跳过人工审核不会跳过构建和安全扫描；后端仍会校验所有发布阻断。</p>
+    </div>
+    <template #footer>
+      <div class="publish-confirm-footer">
+        <n-button @click="publishConfirmVisible = false">取消</n-button>
+        <n-button type="primary" :disabled="publishCandidateBlockers.length > 0" @click="confirmPublishCurrent">
+          确认发布
+        </n-button>
+      </div>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
@@ -138,6 +157,7 @@ import ArtifactBrowserModal from '@/components/version/artifact-browser-modal.vu
 import VersionTable from '@/components/version/version-table.vue'
 import { getVersionBlockers } from '@/composables/use-plugin-actions'
 import { usePluginDetail, usePluginMutations } from '@/query/plugins'
+import { reviewStatusLabel } from '@/utils/review'
 
 const route = useRoute()
 const router = useRouter()
@@ -150,6 +170,8 @@ const plugin = computed(() => query.data.value)
 const latestCandidate = computed(() => plugin.value?.versions.find((item) => item.is_latest) || plugin.value?.versions[0])
 const artifactBrowserVisible = ref(false)
 const artifactBrowserVersion = ref<VersionSummary | null>(null)
+const publishConfirmVisible = ref(false)
+const publishReviewStatus = ref<'approved' | 'skipped'>('approved')
 const publishCandidateBlockers = computed(() => {
   if (!plugin.value) return []
   if (!latestCandidate.value) return ['暂无版本']
@@ -198,15 +220,21 @@ async function deletePlugin() {
   router.push('/plugins')
 }
 
-async function skipReviewAndPublish() {
+function openPublishConfirm() {
+  publishReviewStatus.value = 'approved'
+  publishConfirmVisible.value = true
+}
+
+async function confirmPublishCurrent() {
   if (!plugin.value || !latestCandidate.value) return
   await runAction(() =>
     mutations.publishVersion.mutateAsync({
       pluginId: plugin.value!.id,
       versionId: latestCandidate.value!.id,
-      reviewStatus: 'skipped',
+      reviewStatus: publishReviewStatus.value,
     }),
   )
+  publishConfirmVisible.value = false
 }
 
 async function runScanProvider(version: VersionSummary, provider: string) {
@@ -239,15 +267,6 @@ async function runAction(action: () => Promise<unknown>) {
   }
 }
 
-function reviewStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    pending: '人工审核待处理',
-    approved: '人工审核通过',
-    skipped: '人工审核跳过',
-    rejected: '人工审核拒绝',
-  }
-  return labels[status] || status
-}
 </script>
 
 <style scoped>
@@ -334,5 +353,50 @@ dd {
   margin: 0;
   max-height: 420px;
   overflow: auto;
+}
+
+.publish-confirm {
+  color: var(--text-secondary);
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.publish-confirm p {
+  line-height: 1.6;
+  margin: 0;
+}
+
+.publish-confirm ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.publish-confirm li {
+  line-height: 1.7;
+}
+
+.publish-review-options {
+  background: var(--surface-hover);
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.publish-confirm-note {
+  font-size: 12px;
+}
+
+.publish-confirm-footer {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+:deep(.publish-confirm-modal) {
+  width: min(520px, calc(100vw - 32px));
 }
 </style>

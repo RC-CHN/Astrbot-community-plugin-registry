@@ -133,11 +133,11 @@ function updateProviders(value: Array<string | number>) {
 }
 
 .setting-field + .setting-field {
-  border-top: 1px solid #cfd8e3;
+  border-top: 1px solid var(--border);
 }
 
 .setting-field.dirty {
-  background: linear-gradient(90deg, rgba(255, 248, 197, 0.46), transparent 55%);
+  background: linear-gradient(90deg, rgba(255, 248, 197, 0.36), transparent 58%);
 }
 
 .field-label {
@@ -148,7 +148,7 @@ function updateProviders(value: Array<string | number>) {
 }
 
 .field-label h3 {
-  color: #202938;
+  color: var(--text-primary);
   font-size: 15px;
   font-weight: 700;
   line-height: 22px;
@@ -159,7 +159,7 @@ function updateProviders(value: Array<string | number>) {
 
 .field-body {
   align-content: center;
-  border-left: 1px solid #edf1f5;
+  border-left: 1px solid var(--divider);
   display: grid;
   gap: 6px;
   min-width: 0;
@@ -167,7 +167,7 @@ function updateProviders(value: Array<string | number>) {
 }
 
 .field-description {
-  color: #6b7787;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.55;
   margin: 0;
@@ -182,7 +182,7 @@ function updateProviders(value: Array<string | number>) {
 }
 
 .field-key code {
-  color: #8793a3;
+  color: var(--text-tertiary);
   display: inline-block;
   font-family: var(--font-mono);
   font-size: 11px;
@@ -191,7 +191,7 @@ function updateProviders(value: Array<string | number>) {
 }
 
 .field-key span {
-  color: #98a2b3;
+  color: var(--text-tertiary);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -224,25 +224,25 @@ function updateProviders(value: Array<string | number>) {
 
 .meta-chip.override {
   background: var(--info-bg);
-  border-color: #b6e3ff;
+  border-color: #b9d5e8;
   color: var(--info-fg);
 }
 
 .meta-chip.unsaved {
   background: var(--warning-bg);
-  border-color: #f0d98c;
+  border-color: #ead889;
   color: var(--warning-fg);
 }
 
 .meta-chip.configured {
   background: var(--success-bg);
-  border-color: #aceebb;
+  border-color: #b7e8c1;
   color: var(--success-fg);
 }
 
 .meta-chip.missing {
   background: var(--warning-bg);
-  border-color: #f0d98c;
+  border-color: #ead889;
   color: var(--warning-fg);
 }
 

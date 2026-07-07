@@ -1,71 +1,84 @@
 <template>
   <n-modal
     :show="show"
-    preset="card"
-    title="制品文件浏览"
     class="artifact-browser-modal"
+    transform-origin="center"
     @update:show="emit('update:show', $event)"
   >
-    <div class="artifact-browser">
-      <header class="artifact-browser-head">
-        <div>
-          <div class="artifact-title">版本 {{ version?.version || '-' }}</div>
-          <div class="artifact-subtitle">打开时加载目录，点击文件后读取内容；二进制文件只展示元信息。</div>
+    <section class="artifact-modal-shell" role="dialog" aria-modal="true" aria-label="制品文件浏览">
+      <header class="artifact-modal-titlebar">
+        <div class="artifact-modal-heading">
+          <strong>制品文件浏览</strong>
+          <span>版本 {{ version?.version || '-' }}</span>
         </div>
-        <n-button size="small" secondary :loading="treeLoading" :disabled="!version" @click="loadTree">
-          刷新目录
+        <n-button size="small" quaternary @click="emit('update:show', false)">
+          关闭
         </n-button>
       </header>
 
-      <n-alert v-if="error" type="error" :bordered="false" closable @close="error = ''">
-        {{ error }}
-      </n-alert>
+      <div class="artifact-modal-body">
+        <div class="artifact-browser">
+          <header class="artifact-browser-head">
+            <div>
+              <div class="artifact-title">版本 {{ version?.version || '-' }}</div>
+              <div class="artifact-subtitle">打开时加载目录，点击文件后读取内容；二进制文件只展示元信息。</div>
+            </div>
+            <n-button size="small" secondary :loading="treeLoading" :disabled="!version" @click="loadTree">
+              刷新目录
+            </n-button>
+          </header>
 
-      <div class="artifact-layout">
-        <aside class="artifact-tree-pane">
-          <n-spin :show="treeLoading">
-            <n-empty v-if="!treeLoading && !treeData.length" description="暂无可浏览文件" />
-            <n-tree
-              v-else
-              block-line
-              :data="treeData"
-              :selected-keys="selectedKeys"
-              :default-expanded-keys="defaultExpandedKeys"
-              key-field="key"
-              label-field="label"
-              @update:selected-keys="handleSelect"
-            />
-          </n-spin>
-        </aside>
+          <n-alert v-if="error" type="error" :bordered="false" closable @close="error = ''">
+            {{ error }}
+          </n-alert>
 
-        <section class="artifact-file-pane">
-          <n-spin :show="fileLoading">
-            <n-empty v-if="!selectedPath" description="选择左侧文件查看内容" />
-            <template v-else-if="selectedFile">
-              <header class="file-head">
-                <div>
-                  <strong>{{ selectedFile.name }}</strong>
-                  <span>{{ selectedFile.path }}</span>
-                </div>
-                <n-space size="small">
-                  <n-tag size="small" round>{{ selectedFile.language }}</n-tag>
-                  <n-tag size="small" round>{{ formatFileSize(selectedFile.size) }}</n-tag>
-                </n-space>
-              </header>
+          <div class="artifact-layout">
+            <aside class="artifact-tree-pane">
+              <n-spin class="pane-spin tree-spin" :show="treeLoading">
+                <n-empty v-if="!treeLoading && !treeData.length" description="暂无可浏览文件" />
+                <n-tree
+                  v-else
+                  block-line
+                  :data="treeData"
+                  :selected-keys="selectedKeys"
+                  :default-expanded-keys="defaultExpandedKeys"
+                  key-field="key"
+                  label-field="label"
+                  @update:selected-keys="handleSelect"
+                />
+              </n-spin>
+            </aside>
 
-              <n-alert v-if="selectedFile.binary" type="warning" :bordered="false">
-                该文件看起来是二进制内容，未在浏览器中展开。
-              </n-alert>
-              <n-alert v-else-if="selectedFile.truncated" type="warning" :bordered="false">
-                文件较大，仅显示前 512 KiB。
-              </n-alert>
+            <section class="artifact-file-pane">
+              <n-spin class="pane-spin file-spin" :show="fileLoading">
+                <n-empty v-if="!selectedPath" description="选择左侧文件查看内容" />
+                <template v-else-if="selectedFile">
+                  <header class="file-head">
+                    <div>
+                      <strong>{{ selectedFile.name }}</strong>
+                      <span>{{ selectedFile.path }}</span>
+                    </div>
+                    <n-space size="small">
+                      <n-tag size="small" round>{{ selectedFile.language }}</n-tag>
+                      <n-tag size="small" round>{{ formatFileSize(selectedFile.size) }}</n-tag>
+                    </n-space>
+                  </header>
 
-              <div v-if="!selectedFile.binary" class="code-viewer" v-html="highlightedHtml" />
-            </template>
-          </n-spin>
-        </section>
+                  <n-alert v-if="selectedFile.binary" type="warning" :bordered="false">
+                    该文件看起来是二进制内容，未在浏览器中展开。
+                  </n-alert>
+                  <n-alert v-else-if="selectedFile.truncated" type="warning" :bordered="false">
+                    文件较大，仅显示前 512 KiB。
+                  </n-alert>
+
+                  <div v-if="!selectedFile.binary" class="code-viewer" v-html="highlightedHtml" />
+                </template>
+              </n-spin>
+            </section>
+          </div>
+        </div>
       </div>
-    </div>
+    </section>
   </n-modal>
 </template>
 
@@ -316,12 +329,76 @@ function escapeHtml(value: string) {
 </script>
 
 <style scoped>
+.artifact-modal-shell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 18px 50px rgb(15 23 42 / 18%);
+  box-sizing: border-box;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  height: 80vh;
+  max-height: calc(100vh - 32px);
+  max-width: calc(100vw - 32px);
+  min-height: min(520px, calc(100vh - 32px));
+  min-width: min(720px, calc(100vw - 32px));
+  overflow: hidden;
+  width: 80vw;
+}
+
+.artifact-modal-titlebar {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 0 16px 0 18px;
+}
+
+.artifact-modal-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.artifact-modal-heading strong,
+.artifact-modal-heading span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-modal-heading strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.artifact-modal-heading span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.artifact-modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 16px;
+}
+
 .artifact-browser {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-height: min(78vh, 820px);
-  min-height: min(640px, 78vh);
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -351,7 +428,7 @@ function escapeHtml(value: string) {
   border-radius: 8px;
   display: grid;
   flex: 1;
-  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
   min-height: 0;
   min-width: 0;
   overflow: hidden;
@@ -359,9 +436,11 @@ function escapeHtml(value: string) {
 
 .artifact-tree-pane,
 .artifact-file-pane {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 12px;
 }
 
@@ -377,10 +456,10 @@ function escapeHtml(value: string) {
 .file-head {
   align-items: flex-start;
   display: flex;
-  flex-wrap: wrap;
   gap: 10px;
   justify-content: space-between;
   margin-bottom: 10px;
+  min-height: 42px;
   min-width: 0;
 }
 
@@ -388,11 +467,15 @@ function escapeHtml(value: string) {
   display: grid;
   gap: 2px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .file-head strong,
 .file-head span {
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .file-head span {
@@ -404,15 +487,17 @@ function escapeHtml(value: string) {
 .code-viewer {
   background: #0f1720;
   border-radius: 8px;
+  flex: 1 1 auto;
   margin: 10px 0 0;
-  min-height: 360px;
+  min-height: 0;
+  min-width: 0;
   overflow: auto;
 }
 
 .code-viewer :deep(pre) {
   background: transparent !important;
   margin: 0;
-  min-height: 360px;
+  min-height: 100%;
   overflow: visible;
   padding: 14px;
   tab-size: 2;
@@ -424,13 +509,53 @@ function escapeHtml(value: string) {
   line-height: 1.6;
 }
 
-:deep(.artifact-browser-modal) {
-  width: min(1120px, 96vw);
+.pane-spin {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.pane-spin :deep(.n-spin-container),
+.pane-spin :deep(.n-spin-content) {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.tree-spin :deep(.n-spin-content) {
+  overflow: auto;
+}
+
+.file-spin :deep(.n-spin-content) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.artifact-tree-pane :deep(.n-tree-node-content__text) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 820px) {
-  .artifact-browser {
-    min-height: 72vh;
+  .artifact-modal-shell {
+    height: calc(100vh - 24px);
+    max-height: calc(100vh - 24px);
+    max-width: calc(100vw - 24px);
+    min-height: 0;
+    min-width: 0;
+    width: calc(100vw - 24px);
+  }
+
+  .artifact-modal-body {
+    padding: 12px;
+  }
+
+  .artifact-browser-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .artifact-layout {

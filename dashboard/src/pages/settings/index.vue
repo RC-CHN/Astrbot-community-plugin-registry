@@ -533,7 +533,7 @@ const editableItems: ConfigItem[] = [
     group: 'scan-policy',
     input: 'boolean',
     scope: '扫描时生效',
-    description: '仅在关闭人工审核时显示并生效；启用 provider 全通过后自动发布当前版本。',
+    description: '只在关闭人工审核时显示并生效；启用 provider 全通过后自动发布当前版本。',
   },
   {
     key: 'VIRUSTOTAL_API_KEY',
@@ -1018,7 +1018,7 @@ function discardDirtyItems() {
 }
 
 .settings-nav-item.active {
-  background: #eef7ff;
+  background: var(--surface-hover);
   border-left-color: var(--accent);
   color: var(--text-primary);
   font-weight: 700;
@@ -1064,7 +1064,7 @@ function discardDirtyItems() {
 
 .section-head {
   align-items: flex-start;
-  border-bottom: 1px solid #e5edf5;
+  border-bottom: 1px solid var(--divider);
   display: flex;
   gap: 16px;
   justify-content: space-between;
@@ -1114,7 +1114,7 @@ function discardDirtyItems() {
 }
 
 .settings-group + .settings-group {
-  border-top: 1px solid #e5edf5;
+  border-top: 1px solid var(--divider);
   margin-top: 20px;
   padding-top: 18px;
 }
@@ -1127,7 +1127,7 @@ function discardDirtyItems() {
 }
 
 .group-head h3 {
-  color: #202938;
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 700;
   line-height: 20px;
@@ -1135,7 +1135,7 @@ function discardDirtyItems() {
 }
 
 .group-head p {
-  color: #7a8696;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.55;
   margin: 0;
@@ -1152,7 +1152,7 @@ function discardDirtyItems() {
 }
 
 .field-list {
-  border-top: 1px solid #cfd8e3;
+  border-top: 1px solid var(--border);
   display: grid;
   min-width: 0;
 }

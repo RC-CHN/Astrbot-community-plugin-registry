@@ -1,25 +1,25 @@
 :root {
   /* Page & surfaces */
-  --page-bg: #f6f8fa;
+  --page-bg: #eef2f6;
   --surface: #ffffff;
-  --surface-hover: #f3f4f6;
-  --hover-bg: #f6f8fa;
+  --surface-hover: #e8f3fa;
+  --hover-bg: #f6fbff;
 
   /* Text */
   --text-primary: #1f2328;
   --text-secondary: #656d76;
   --text-tertiary: #6e7781;
-  --text-link: #0969da;
+  --text-link: #2f86bd;
 
   /* Borders & dividers */
-  --border: #d0d7de;
-  --border-muted: #d8dee4;
-  --divider: #eaeef2;
+  --border: #d6e0ea;
+  --border-muted: #e1eaf2;
+  --divider: #e7eef5;
 
   /* Accent */
-  --accent: #0969da;
-  --accent-hover: #0860ca;
-  --accent-pressed: #0550ae;
+  --accent: #3c96ca;
+  --accent-hover: #2f86bd;
+  --accent-pressed: #236b99;
 
   /* Status: muted background + foreground (GitHub label style) */
   --success-bg: #dafbe1;
@@ -28,9 +28,9 @@
   --warning-fg: #9a6700;
   --error-bg: #ffebe9;
   --error-fg: #cf222e;
-  --info-bg: #ddf4ff;
-  --info-fg: #0969da;
-  --neutral-bg: #eaeef2;
+  --info-bg: #e8f3fa;
+  --info-fg: #2f86bd;
+  --neutral-bg: #eef2f6;
 
   /* Typography */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;

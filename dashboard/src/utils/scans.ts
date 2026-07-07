@@ -43,6 +43,12 @@ export type ParsedScanMessage =
 
 const PROVIDER_ORDER = ['clamav', 'virustotal', 'llm_agent']
 
+export const SCAN_ACTION_PROVIDERS = [
+  { provider: 'clamav', label: 'ClamAV' },
+  { provider: 'virustotal', label: 'VirusTotal' },
+  { provider: 'llm_agent', label: 'LLM' },
+]
+
 export function scanProviderEntries(scan: ScanSummary | null): ScanProviderEntry[] {
   if (!scan) return []
   const entries: ScanProviderEntry[] = []

@@ -10,7 +10,7 @@ export function getVersionBlockers(
   const includeVersionStatus = options.includeVersionStatus ?? true
   const blockers: string[] = []
   if (includePluginStatus && plugin.status !== 'active') blockers.push('插件尚未审核通过')
-  if (includeVersionStatus && version.version_status !== 'active') blockers.push('版本尚未标记为可发布')
+  if (includeVersionStatus && version.version_status !== 'active') blockers.push('版本尚未标记为发布候选')
   if (version.build_status === 'building' || version.build_status === 'pending') {
     blockers.push('构建仍在进行')
   } else if (version.build_status === 'scanning') {
@@ -28,13 +28,13 @@ export function getVersionBlockers(
 
 export function canActivateVersion(version: VersionSummary): { ok: boolean; reason: string } {
   if (version.build_status !== 'success') {
-    return { ok: false, reason: '构建未成功，不能标记为可发布' }
+    return { ok: false, reason: '构建未成功，不能标记为发布候选' }
   }
   if (scanHasPending(version.scan)) {
-    return { ok: false, reason: '扫描仍在进行，不能标记为可发布' }
+    return { ok: false, reason: '扫描仍在进行，不能标记为发布候选' }
   }
   if (scanHasBlockingResult(version.scan)) {
-    return { ok: false, reason: '扫描未通过，不能标记为可发布' }
+    return { ok: false, reason: '扫描未通过，不能标记为发布候选' }
   }
   return { ok: true, reason: '' }
 }

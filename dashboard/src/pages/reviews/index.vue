@@ -60,109 +60,23 @@
           <section class="version-section">
             <h3 class="section-title">版本列表</h3>
             <p class="section-note">
-              版本先完成构建和扫描，再标记为可发布；只有设为公开版本后，AstrBot 插件源才会返回这个版本。
+              版本先完成构建和扫描，再标记为发布候选；只有设为插件源当前版本后，AstrBot 插件源才会返回这个版本。
             </p>
             <div v-if="plugin.versions.length" class="review-version-list">
-              <article v-for="version in plugin.versions" :key="version.id" class="review-version-card">
-                <header class="review-version-head">
-                  <div class="version-title-group">
-                    <strong>{{ version.version }}</strong>
-                    <n-tag v-if="version.is_latest" type="success" size="small" round>当前公开版本</n-tag>
-                  </div>
-                  <n-space size="small">
-                    <status-tag kind="build" :value="version.build_status" />
-                    <status-tag kind="version" :value="version.version_status" />
-                  </n-space>
-                </header>
-
-                <div class="review-version-meta">
-                  <div>
-                    <span>来源</span>
-                    <strong>{{ version.source_type }}</strong>
-                  </div>
-                  <div>
-                    <span>Commit</span>
-                    <copyable-text :value="version.commit_sha" :max="24" />
-                  </div>
-                  <div>
-                    <span>大小</span>
-                    <strong>{{ formatFileSize(version.file_size) }}</strong>
-                  </div>
-                  <div>
-                    <span>创建时间</span>
-                    <strong>{{ formatDateTime(version.created_at) }}</strong>
-                  </div>
-                </div>
-
-                <div class="review-scan-block">
-                  <span class="scan-label">扫描</span>
-                  <div class="review-scan-tags">
-                    <n-tag :type="getScanAggregateMeta(version.scan).type" size="small" round>
-                      {{ getScanAggregateMeta(version.scan).label }}
-                    </n-tag>
-                    <button
-                      v-for="entry in scanProviderEntries(version.scan)"
-                      :key="entry.provider"
-                      class="scan-chip-button"
-                      type="button"
-                      @click="openScanDetail(version)"
-                    >
-                      <n-tag :type="scanResultMeta(entry.result).type" size="small" round bordered>
-                        {{ providerLabel(entry.provider) }}
-                      </n-tag>
-                    </button>
-                    <n-tag :type="humanReviewMeta(plugin.review_status).type" size="small" round bordered>
-                      人工 {{ humanReviewMeta(plugin.review_status).label }}
-                    </n-tag>
-                    <n-button
-                      v-if="scanProviderEntries(version.scan).length"
-                      size="tiny"
-                      secondary
-                      @click="openScanDetail(version)"
-                    >
-                      详情
-                    </n-button>
-                  </div>
-                </div>
-
-                <footer class="review-version-actions">
-                  <n-button
-                    size="small"
-                    :disabled="!canMarkVersionActive(version).ok || version.version_status === 'active'"
-                    :title="canMarkVersionActive(version).reason"
-                    @click="setVersionStatus(version, 'active')"
-                  >
-                    标记可发布
-                  </n-button>
-                  <n-button
-                    size="small"
-                    type="primary"
-                    secondary
-                    :disabled="latestBlockers(version).length > 0 || version.is_latest"
-                    :title="latestBlockers(version).join('；')"
-                    @click="setLatest(version)"
-                  >
-                    设为公开版本
-                  </n-button>
-                  <n-button
-                    size="small"
-                    secondary
-                    :disabled="!version.download_url"
-                    :title="version.download_url ? undefined : '当前版本还没有可浏览的制品'"
-                    @click="openArtifactBrowser(version)"
-                  >
-                    浏览文件
-                  </n-button>
-                  <n-dropdown
-                    trigger="click"
-                    placement="bottom-end"
-                    :options="scanActionOptions(version)"
-                    @select="handleScanAction(version, $event)"
-                  >
-                    <n-button size="small" secondary>扫描操作</n-button>
-                  </n-dropdown>
-                </footer>
-              </article>
+              <version-summary-card
+                v-for="version in plugin.versions"
+                :key="version.id"
+                :plugin="plugin"
+                :version="version"
+                :review-status="plugin.review_status"
+                @show-scan-detail="openScanDetail"
+                @set-version-status="setVersionStatus"
+                @set-latest="setLatest"
+                @browse-artifact="openArtifactBrowser"
+                @rescan="rescanVersion"
+                @run-scan-provider="runScanProvider"
+                @skip-scan-provider="skipScanProvider"
+              />
             </div>
             <empty-state v-else description="暂无版本" />
           </section>
@@ -196,36 +110,16 @@
                 <div class="action-groups">
                   <div class="action-group">
                     <n-button class="action-button" @click="approvePluginOnly">
-                      仅标记审核通过
+                      标记人工审核通过
                     </n-button>
                     <n-button
                       class="action-button"
                       type="primary"
                       :disabled="publishBlockers.length > 0"
-                      @click="approveAndPublish"
+                      @click="openPublishConfirm"
                     >
-                      审核并发布当前版本
+                      发布当前版本
                     </n-button>
-                  </div>
-
-                  <div class="action-group">
-                    <n-popconfirm
-                      positive-text="确认跳过"
-                      negative-text="取消"
-                      @positive-click="skipReviewAndPublish"
-                    >
-                      <template #trigger>
-                        <n-button
-                          class="action-button"
-                          type="warning"
-                          secondary
-                          :disabled="publishBlockers.length > 0"
-                        >
-                          跳过人工审核并发布
-                        </n-button>
-                      </template>
-                      这只跳过人工审核，不会跳过构建和安全扫描。确认后会公开当前版本。
-                    </n-popconfirm>
                   </div>
 
                   <div class="action-group danger">
@@ -249,17 +143,40 @@
         <empty-state v-else description="请选择一个待审核插件" />
       </main>
     </div>
+
+    <n-modal v-model:show="publishConfirmVisible" preset="card" title="发布当前版本" class="publish-confirm-modal">
+      <div class="publish-confirm">
+        <p>此操作将把当前版本设为 AstrBot 插件源返回的版本。</p>
+        <ul>
+          <li>标记插件为可公开</li>
+          <li>标记当前版本为发布候选</li>
+          <li>将当前版本设为插件源当前版本</li>
+        </ul>
+        <n-radio-group v-model:value="publishReviewStatus" class="publish-review-options">
+          <n-radio value="approved">标记人工审核通过并发布</n-radio>
+          <n-radio value="skipped">跳过人工审核并发布</n-radio>
+        </n-radio-group>
+        <p class="publish-confirm-note">跳过人工审核不会跳过构建和安全扫描；后端仍会校验所有发布阻断。</p>
+      </div>
+      <template #footer>
+        <div class="publish-confirm-footer">
+          <n-button @click="publishConfirmVisible = false">取消</n-button>
+          <n-button type="primary" :disabled="publishBlockers.length > 0" @click="confirmPublishCurrent">
+            确认发布
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMessage, type DropdownOption } from 'naive-ui'
+import { useMessage } from 'naive-ui'
 
 import type { VersionStatus, VersionSummary } from '@/api/types'
 import ApiErrorAlert from '@/components/common/api-error-alert.vue'
-import CopyableText from '@/components/common/copyable-text.vue'
 import EmptyState from '@/components/common/empty-state.vue'
 import PageHeader from '@/components/common/page-header.vue'
 import StatusTag from '@/components/common/status-tag.vue'
@@ -267,12 +184,10 @@ import PluginTitle from '@/components/plugin/plugin-title.vue'
 import PublishBlockerAlert from '@/components/review/publish-blocker-alert.vue'
 import ArtifactBrowserModal from '@/components/version/artifact-browser-modal.vue'
 import ScanDetailModal from '@/components/version/scan-detail-modal.vue'
-import { canActivateVersion, getVersionBlockers } from '@/composables/use-plugin-actions'
-import { getScanAggregateMeta } from '@/composables/use-status-meta'
+import VersionSummaryCard from '@/components/version/version-summary-card.vue'
+import { getVersionBlockers } from '@/composables/use-plugin-actions'
 import { usePendingPlugins, usePluginDetail, usePluginMutations } from '@/query/plugins'
-import { formatDateTime } from '@/utils/datetime'
-import { formatFileSize } from '@/utils/file-size'
-import { providerLabel, scanProviderEntries, scanResultMeta } from '@/utils/scans'
+import { reviewStatusLabel } from '@/utils/review'
 
 const router = useRouter()
 const message = useMessage()
@@ -287,6 +202,8 @@ const scanDetailVisible = ref(false)
 const scanDetailVersion = ref<VersionSummary | null>(null)
 const artifactBrowserVisible = ref(false)
 const artifactBrowserVersion = ref<VersionSummary | null>(null)
+const publishConfirmVisible = ref(false)
+const publishReviewStatus = ref<'approved' | 'skipped'>('approved')
 const publishBlockers = computed(() => {
   if (!plugin.value) return []
   if (!candidate.value) return ['暂无版本']
@@ -295,11 +212,6 @@ const publishBlockers = computed(() => {
     includeVersionStatus: false,
   })
 })
-const SCAN_ACTION_PROVIDERS = [
-  { provider: 'clamav', label: 'ClamAV' },
-  { provider: 'virustotal', label: 'VirusTotal' },
-  { provider: 'llm_agent', label: 'LLM' },
-]
 
 watch(
   () => pendingQuery.data.value,
@@ -314,26 +226,21 @@ async function approvePluginOnly() {
   await runAction(() => mutations.updatePluginStatus.mutateAsync({ pluginId: plugin.value!.id, status: 'active' }))
 }
 
-async function approveAndPublish() {
-  if (!plugin.value || !candidate.value) return
-  await runAction(() =>
-    mutations.publishVersion.mutateAsync({
-      pluginId: plugin.value!.id,
-      versionId: candidate.value!.id,
-      reviewStatus: 'approved',
-    }),
-  )
+function openPublishConfirm() {
+  publishReviewStatus.value = 'approved'
+  publishConfirmVisible.value = true
 }
 
-async function skipReviewAndPublish() {
+async function confirmPublishCurrent() {
   if (!plugin.value || !candidate.value) return
   await runAction(() =>
     mutations.publishVersion.mutateAsync({
       pluginId: plugin.value!.id,
       versionId: candidate.value!.id,
-      reviewStatus: 'skipped',
+      reviewStatus: publishReviewStatus.value,
     }),
   )
+  publishConfirmVisible.value = false
 }
 
 async function disablePlugin() {
@@ -388,37 +295,6 @@ function openArtifactBrowser(version: VersionSummary) {
   artifactBrowserVisible.value = true
 }
 
-function canMarkVersionActive(version: VersionSummary) {
-  return canActivateVersion(version)
-}
-
-function latestBlockers(version: VersionSummary) {
-  if (!plugin.value) return ['请选择插件']
-  return getVersionBlockers(plugin.value, version)
-}
-
-function scanActionOptions(version: VersionSummary): DropdownOption[] {
-  const scanDisabled = !version.download_url || version.build_status === 'scanning'
-  return [
-    { label: '运行启用扫描', key: 'rescan', disabled: scanDisabled },
-    { type: 'divider', key: 'scan-divider' },
-    ...SCAN_ACTION_PROVIDERS.flatMap(({ provider, label }) => [
-      { label: `${label} 扫描`, key: `${provider}:run`, disabled: scanDisabled },
-      { label: `${label} 跳过`, key: `${provider}:skip` },
-    ]),
-  ]
-}
-
-async function handleScanAction(version: VersionSummary, key: string) {
-  if (key === 'rescan') {
-    await rescanVersion(version)
-    return
-  }
-  const [provider, action] = key.split(':', 2)
-  if (provider && action === 'run') await runScanProvider(version, provider)
-  if (provider && action === 'skip') await skipScanProvider(version, provider)
-}
-
 async function runAction(action: () => Promise<unknown>) {
   actionError.value = null
   try {
@@ -429,26 +305,6 @@ async function runAction(action: () => Promise<unknown>) {
   } catch (err) {
     actionError.value = err
   }
-}
-
-function reviewStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    pending: '人工审核待处理',
-    approved: '人工审核通过',
-    skipped: '人工审核跳过',
-    rejected: '人工审核拒绝',
-  }
-  return labels[status] || status
-}
-
-function humanReviewMeta(status: string) {
-  const meta: Record<string, { label: string; type: 'default' | 'success' | 'warning' | 'error' }> = {
-    pending: { label: '待处理', type: 'warning' },
-    approved: { label: '通过', type: 'success' },
-    skipped: { label: '跳过', type: 'default' },
-    rejected: { label: '拒绝', type: 'error' },
-  }
-  return meta[status] || { label: status, type: 'default' }
 }
 </script>
 
@@ -596,111 +452,6 @@ function humanReviewMeta(status: string) {
   min-width: 0;
 }
 
-.review-version-card {
-  border: 1px solid var(--border-muted);
-  border-radius: 8px;
-  display: grid;
-  gap: 14px;
-  min-width: 0;
-  padding: 14px;
-}
-
-.review-version-head {
-  align-items: flex-start;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: space-between;
-  min-width: 0;
-}
-
-.version-title-group {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-
-.version-title-group strong {
-  font-size: 16px;
-  overflow-wrap: anywhere;
-}
-
-.review-version-meta {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
-  min-width: 0;
-}
-
-.review-version-meta > div {
-  background: var(--surface-hover);
-  border: 1px solid var(--divider);
-  border-radius: 8px;
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  padding: 10px 12px;
-}
-
-.review-version-meta span,
-.scan-label {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.review-version-meta strong {
-  font-size: 13px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.review-scan-block {
-  align-items: flex-start;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: 42px minmax(0, 1fr);
-  min-width: 0;
-}
-
-.review-scan-tags {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-
-.scan-chip-button {
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  line-height: 1;
-  padding: 0;
-}
-
-.review-version-actions {
-  align-items: center;
-  border-top: 1px solid var(--divider);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-  min-width: 0;
-  padding-top: 12px;
-}
-
-.review-version-actions :deep(.n-button) {
-  flex: 0 1 auto;
-  max-width: 100%;
-}
-
-.review-version-actions :deep(.n-button__content) {
-  min-width: 0;
-  white-space: normal;
-}
-
 .action-bar {
   border-top: 1px solid var(--divider);
   padding-top: 16px;
@@ -744,6 +495,51 @@ function humanReviewMeta(status: string) {
 .action-section :deep(.n-button__content) {
   min-width: 0;
   white-space: normal;
+}
+
+.publish-confirm {
+  color: var(--text-secondary);
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.publish-confirm p {
+  line-height: 1.6;
+  margin: 0;
+}
+
+.publish-confirm ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.publish-confirm li {
+  line-height: 1.7;
+}
+
+.publish-review-options {
+  background: var(--surface-hover);
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.publish-confirm-note {
+  font-size: 12px;
+}
+
+.publish-confirm-footer {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+:deep(.publish-confirm-modal) {
+  width: min(520px, calc(100vw - 32px));
 }
 
 @media (max-width: 1180px) {
