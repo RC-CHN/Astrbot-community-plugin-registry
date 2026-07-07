@@ -93,6 +93,14 @@ async def runtime_git_clone_timeout(db: AsyncSession) -> int:
     return await get_runtime_value(db, "GIT_CLONE_TIMEOUT", settings.git_clone_timeout, int)
 
 
+async def runtime_git_preflight_timeout(db: AsyncSession) -> int:
+    return await get_runtime_value(db, "GIT_PREFLIGHT_TIMEOUT", settings.git_preflight_timeout, int)
+
+
+async def runtime_git_max_repo_size_kb(db: AsyncSession) -> int:
+    return await get_runtime_value(db, "GIT_MAX_REPO_SIZE_KB", settings.git_max_repo_size_kb, int)
+
+
 async def runtime_git_http_proxy(db: AsyncSession) -> str:
     return await get_runtime_value(db, "GIT_HTTP_PROXY", settings.git_http_proxy, str)
 

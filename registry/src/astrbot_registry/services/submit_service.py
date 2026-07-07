@@ -11,8 +11,14 @@ from ..services.plugin_service import (
     get_plugin_by_key,
     get_version_by_plugin_and_number,
 )
-from ..services.runtime_config import runtime_git_allowed_hosts, runtime_git_clone_timeout, runtime_git_http_proxy
-from ..utils.git_utils import clone_repo, get_metadata_path, temp_repo_dir
+from ..services.runtime_config import (
+    runtime_git_allowed_hosts,
+    runtime_git_clone_timeout,
+    runtime_git_http_proxy,
+    runtime_git_max_repo_size_kb,
+    runtime_git_preflight_timeout,
+)
+from ..utils.git_utils import clone_repo, get_metadata_path, preflight_github_repo_size, temp_repo_dir
 from ..utils.metadata_parser import infer_plugin_key, parse_metadata_yaml
 from .errors import ConflictError
 
@@ -26,8 +32,17 @@ async def submit_repo(
     user_id: str | None = None,
 ) -> None:
     git_clone_timeout = await runtime_git_clone_timeout(db)
+    git_preflight_timeout = await runtime_git_preflight_timeout(db)
+    git_max_repo_size_kb = await runtime_git_max_repo_size_kb(db)
     git_allowed_hosts = await runtime_git_allowed_hosts(db)
     git_http_proxy = await runtime_git_http_proxy(db)
+    preflight_github_repo_size(
+        repo_url,
+        max_size_kb=git_max_repo_size_kb,
+        timeout=git_preflight_timeout,
+        allowed_hosts=git_allowed_hosts,
+        proxy_url=git_http_proxy,
+    )
     with temp_repo_dir() as repo_dir:
         clone_repo(
             repo_url,

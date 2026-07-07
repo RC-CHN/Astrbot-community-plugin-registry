@@ -199,6 +199,22 @@ const editableItems: ConfigItem[] = [
     description: 'Git clone 超时时间，单位秒。',
   },
   {
+    key: 'GIT_PREFLIGHT_TIMEOUT',
+    label: '仓库预检超时',
+    group: 'git',
+    input: 'number',
+    scope: '即时生效',
+    description: 'GitHub 仓库元数据预检超时时间，单位秒。',
+  },
+  {
+    key: 'GIT_MAX_REPO_SIZE_KB',
+    label: '仓库大小上限',
+    group: 'git',
+    input: 'number',
+    scope: '即时生效',
+    description: 'Clone 前允许的最大 GitHub 仓库大小，单位 KiB；设为 0 可关闭大小预检。',
+  },
+  {
     key: 'SCAN_ENABLED_PROVIDERS',
     label: '启用扫描 Provider',
     group: 'scan',

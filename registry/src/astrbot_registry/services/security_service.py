@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import ipaddress
 import threading
 import time
 from dataclasses import dataclass
@@ -135,10 +136,44 @@ def login_rate_limit_keys(request: Request, username: str) -> list[str]:
     return [f"user:{username_key}", f"ip:{client_ip}"]
 
 
-def _client_ip(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip() or "unknown"
+def _client_ip(request: Request, app_settings: Settings = settings) -> str:
+    peer = _peer_ip(request)
+    if app_settings.trust_proxy_headers and _is_trusted_proxy(peer, app_settings.trusted_proxy_cidrs):
+        forwarded_for = request.headers.get("x-forwarded-for")
+        if forwarded_for:
+            return forwarded_for.split(",", 1)[0].strip() or peer
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            return real_ip.strip() or peer
+    return peer
+
+
+def _peer_ip(request: Request) -> str:
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
+
+
+def _is_trusted_proxy(peer: str, trusted_cidrs: list[str]) -> bool:
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+
+    for cidr in trusted_cidrs:
+        try:
+            network = _parse_proxy_network(cidr)
+        except ValueError:
+            continue
+        if peer_ip in network:
+            return True
+    return False
+
+
+def _parse_proxy_network(value: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
+    value = value.strip()
+    if "/" in value:
+        return ipaddress.ip_network(value, strict=False)
+    ip = ipaddress.ip_address(value)
+    prefix = 32 if ip.version == 4 else 128
+    return ipaddress.ip_network(f"{value}/{prefix}", strict=False)

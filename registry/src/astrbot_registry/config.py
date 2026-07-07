@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     security_headers_enabled: bool = True
     hsts_enabled: bool = False
     hsts_max_age_seconds: int = 31536000
+    trust_proxy_headers: bool = False
+    trusted_proxy_cidrs: Annotated[list[str], NoDecode] = ["127.0.0.1/32", "::1/128"]
     bootstrap_api_enabled: bool = False
     public_cache_max_age: int = 60
     bootstrap_admin_username: str = ""
@@ -99,6 +101,8 @@ class Settings(BaseSettings):
     max_single_file_bytes: int = 50 * 1024 * 1024
     max_release_zip_bytes: int = 50 * 1024 * 1024
     git_clone_timeout: int = 120
+    git_preflight_timeout: int = 10
+    git_max_repo_size_kb: int = 200 * 1024
     git_http_proxy: str = ""
     build_network_disabled: bool = True
     git_allowed_hosts: Annotated[list[str], NoDecode] = ["github.com"]
@@ -122,6 +126,7 @@ class Settings(BaseSettings):
         "git_allowed_hosts",
         "scan_enabled_providers",
         "trusted_hosts",
+        "trusted_proxy_cidrs",
         "cors_allow_origins",
         mode="before",
     )

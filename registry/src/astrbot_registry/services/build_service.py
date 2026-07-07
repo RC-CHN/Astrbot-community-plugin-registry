@@ -12,13 +12,21 @@ from ..services.runtime_config import (
     runtime_git_allowed_hosts,
     runtime_git_clone_timeout,
     runtime_git_http_proxy,
+    runtime_git_max_repo_size_kb,
+    runtime_git_preflight_timeout,
     runtime_max_release_zip_bytes,
     runtime_s3_layout,
     runtime_s3_public_url,
 )
 from ..services.s3_service import build_public_url_with_base, build_s3_key_with_layout, upload_file
 from ..services.scan_service import scan_version
-from ..utils.git_utils import clone_repo, get_commit_sha, get_metadata_path, temp_repo_dir
+from ..utils.git_utils import (
+    clone_repo,
+    get_commit_sha,
+    get_metadata_path,
+    preflight_github_repo_size,
+    temp_repo_dir,
+)
 from ..utils.metadata_parser import PluginMetadata, parse_metadata_yaml
 
 
@@ -80,6 +88,8 @@ async def build_from_repo(
     s3_layout = await runtime_s3_layout(db)
     s3_public_url = await runtime_s3_public_url(db)
     git_clone_timeout = await runtime_git_clone_timeout(db)
+    git_preflight_timeout = await runtime_git_preflight_timeout(db)
+    git_max_repo_size_kb = await runtime_git_max_repo_size_kb(db)
     git_allowed_hosts = await runtime_git_allowed_hosts(db)
     git_http_proxy = await runtime_git_http_proxy(db)
     max_release_zip_bytes = await runtime_max_release_zip_bytes(db)
@@ -102,6 +112,13 @@ async def build_from_repo(
     )
 
     try:
+        preflight_github_repo_size(
+            plugin.repo_url,
+            max_size_kb=git_max_repo_size_kb,
+            timeout=git_preflight_timeout,
+            allowed_hosts=git_allowed_hosts,
+            proxy_url=git_http_proxy,
+        )
         with temp_repo_dir() as repo_dir:
             clone_repo(
                 plugin.repo_url,

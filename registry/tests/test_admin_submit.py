@@ -1,8 +1,10 @@
+import io
 import uuid
+import zipfile
 from types import SimpleNamespace
 
 import pytest
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import BackgroundTasks, HTTPException, UploadFile
 
 from astrbot_registry.api import admin
 from astrbot_registry.schemas.admin import PluginCreateRequest
@@ -68,3 +70,44 @@ def async_value(value):
         return value
 
     return inner
+
+
+@pytest.mark.asyncio
+async def test_process_uploaded_zip_ignores_client_filename(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        admin,
+        "runtime_upload_limits",
+        async_value(
+            {
+                "max_upload_bytes": 1024 * 1024,
+                "max_unzip_bytes": 1024 * 1024,
+                "max_zip_entries": 10,
+                "max_single_file_bytes": 1024 * 1024,
+            }
+        ),
+    )
+
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as zf:
+        zf.writestr(
+            "metadata.yaml",
+            "\n".join(
+                [
+                    "name: astrbot_plugin_test",
+                    "desc: test",
+                    "author: tester",
+                    "version: v1.0.0",
+                ]
+            ),
+        )
+    payload.seek(0)
+
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    upload = UploadFile(filename="../escape.zip", file=payload)
+    metadata, zip_path = await admin._process_uploaded_zip(upload, workdir, object())
+
+    assert metadata.name == "astrbot_plugin_test"
+    assert zip_path == workdir / "upload.zip"
+    assert zip_path.exists()
+    assert not (tmp_path / "escape.zip").exists()

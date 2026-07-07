@@ -189,7 +189,7 @@ async def _process_uploaded_zip(
     db: AsyncSession,
 ) -> tuple:
     limits = await runtime_upload_limits(db)
-    zip_path = workdir / (file.filename or "upload.zip")
+    zip_path = workdir / "upload.zip"
     total = 0
     with open(zip_path, "wb") as f:
         while chunk := await file.read(1024 * 1024):

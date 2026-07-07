@@ -91,3 +91,20 @@ async def test_runtime_llm_agent_config(monkeypatch) -> None:
         "api_key": "secret",
         "max_context_chars": 12000,
     }
+
+
+@pytest.mark.asyncio
+async def test_runtime_git_preflight_config(monkeypatch) -> None:
+    redis = FakeRedis()
+    redis.hashes[runtime_config.RUNTIME_CONFIG_CACHE_KEY] = {
+        "GIT_PREFLIGHT_TIMEOUT": "3",
+        "GIT_MAX_REPO_SIZE_KB": "1024",
+    }
+
+    async def fake_get_redis():
+        return redis
+
+    monkeypatch.setattr(runtime_config, "get_redis", fake_get_redis)
+
+    assert await runtime_config.runtime_git_preflight_timeout(db=None) == 3  # type: ignore[arg-type]
+    assert await runtime_config.runtime_git_max_repo_size_kb(db=None) == 1024  # type: ignore[arg-type]

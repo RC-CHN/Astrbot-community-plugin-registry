@@ -52,6 +52,17 @@ def test_config_response_includes_scan_policy_defaults() -> None:
     assert response["effective_values"]["SCAN_AUTO_PUBLISH_ENABLED"] == "False"
 
 
+def test_config_response_includes_git_preflight_defaults() -> None:
+    response = build_config_response({})
+
+    assert response["effective_values"]["GIT_PREFLIGHT_TIMEOUT"] == str(
+        EFFECTIVE_CONFIG_DEFAULTS["GIT_PREFLIGHT_TIMEOUT"]
+    )
+    assert response["effective_values"]["GIT_MAX_REPO_SIZE_KB"] == str(
+        EFFECTIVE_CONFIG_DEFAULTS["GIT_MAX_REPO_SIZE_KB"]
+    )
+
+
 def test_config_response_redacts_sensitive_values() -> None:
     response = build_config_response({
         "GITHUB_WEBHOOK_SECRET": "secret",

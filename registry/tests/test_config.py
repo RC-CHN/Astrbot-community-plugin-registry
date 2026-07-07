@@ -38,10 +38,12 @@ def test_settings_parse_allowed_git_hosts_csv() -> None:
 def test_settings_parse_security_csv_lists() -> None:
     settings = Settings(
         trusted_hosts="registry.example.com,api.example.com",
+        trusted_proxy_cidrs="127.0.0.1/32,172.16.0.0/12",
         cors_allow_origins="https://registry.example.com,https://admin.example.com",
     )
 
     assert settings.trusted_hosts == ["registry.example.com", "api.example.com"]
+    assert settings.trusted_proxy_cidrs == ["127.0.0.1/32", "172.16.0.0/12"]
     assert settings.cors_allow_origins == [
         "https://registry.example.com",
         "https://admin.example.com",

@@ -5,6 +5,7 @@ import pytest
 from astrbot_registry.services.security_service import (
     InMemoryRateLimiter,
     SecurityConfigurationError,
+    _client_ip,
     validate_security_settings,
 )
 
@@ -77,3 +78,48 @@ def test_in_memory_rate_limiter_blocks_after_threshold() -> None:
     assert limiter.retry_after("user:admin", now=103) == 29
     limiter.record_success("user:admin")
     assert limiter.retry_after("user:admin", now=104) == 0
+
+
+def test_client_ip_ignores_forwarded_for_by_default() -> None:
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "203.0.113.10"},
+        client=SimpleNamespace(host="198.51.100.20"),
+    )
+
+    assert _client_ip(
+        request,
+        _settings(
+            trust_proxy_headers=False,
+            trusted_proxy_cidrs=["198.51.100.0/24"],
+        ),
+    ) == "198.51.100.20"
+
+
+def test_client_ip_uses_forwarded_for_from_trusted_proxy() -> None:
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "203.0.113.10, 198.51.100.20"},
+        client=SimpleNamespace(host="172.18.0.4"),
+    )
+
+    assert _client_ip(
+        request,
+        _settings(
+            trust_proxy_headers=True,
+            trusted_proxy_cidrs=["172.16.0.0/12"],
+        ),
+    ) == "203.0.113.10"
+
+
+def test_client_ip_rejects_forwarded_for_from_untrusted_peer() -> None:
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "203.0.113.10"},
+        client=SimpleNamespace(host="198.51.100.20"),
+    )
+
+    assert _client_ip(
+        request,
+        _settings(
+            trust_proxy_headers=True,
+            trusted_proxy_cidrs=["172.16.0.0/12"],
+        ),
+    ) == "198.51.100.20"

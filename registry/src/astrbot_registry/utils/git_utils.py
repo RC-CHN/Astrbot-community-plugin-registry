@@ -1,13 +1,16 @@
 """GitHub URL parsing and repository cloning helpers."""
 
+import json
 import re
 import shutil
 import subprocess
+import urllib.error
+import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Generator
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from ..config import settings
 
@@ -36,6 +39,82 @@ def parse_github_url(url: str, allowed_hosts: list[str] | None = None) -> tuple[
 
 def _is_sha(ref: str) -> bool:
     return len(ref) == 40 and all(c in "0123456789abcdef" for c in ref.lower())
+
+
+def preflight_github_repo_size(
+    repo_url: str,
+    *,
+    max_size_kb: int,
+    timeout: int | None = None,
+    allowed_hosts: list[str] | None = None,
+    proxy_url: str | None = None,
+) -> int | None:
+    """Validate GitHub repository size before cloning.
+
+    GitHub's repository API reports the repository size in KiB. A non-positive
+    ``max_size_kb`` disables this preflight for deployments that prefer the old
+    clone-only behavior.
+    """
+    if max_size_kb <= 0:
+        parse_github_url(repo_url, allowed_hosts=allowed_hosts)
+        return None
+
+    size_kb = fetch_github_repo_size_kb(
+        repo_url,
+        timeout=timeout,
+        allowed_hosts=allowed_hosts,
+        proxy_url=proxy_url,
+    )
+    if size_kb > max_size_kb:
+        raise GitError(
+            f"Repository is too large: {size_kb} KiB exceeds limit {max_size_kb} KiB"
+        )
+    return size_kb
+
+
+def fetch_github_repo_size_kb(
+    repo_url: str,
+    *,
+    timeout: int | None = None,
+    allowed_hosts: list[str] | None = None,
+    proxy_url: str | None = None,
+) -> int:
+    owner, repo = parse_github_url(repo_url, allowed_hosts=allowed_hosts)
+    api_url = f"https://api.github.com/repos/{quote(owner)}/{quote(repo)}"
+    request = urllib.request.Request(
+        api_url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "AstrBot-Community-Plugin-Registry",
+        },
+    )
+    opener = _url_opener(proxy_url)
+
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise GitError(f"Failed to inspect GitHub repository: HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise GitError(f"Failed to inspect GitHub repository: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise GitError("Timed out inspecting GitHub repository") from exc
+    except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise GitError("Failed to parse GitHub repository metadata") from exc
+
+    try:
+        return int(payload["size"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise GitError("GitHub repository metadata did not include size") from exc
+
+
+def _url_opener(proxy_url: str | None):
+    proxy_url = (proxy_url or "").strip()
+    if not proxy_url:
+        return urllib.request.build_opener()
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
+    )
 
 
 def clone_repo(
@@ -75,7 +154,18 @@ def clone_repo(
             )
         elif ref:
             subprocess.run(
-                ["git", *proxy_args, "clone", "--branch", ref, "--depth", "1", repo_url, str(dest)],
+                [
+                    "git",
+                    *proxy_args,
+                    "clone",
+                    "--branch",
+                    ref,
+                    "--filter=blob:none",
+                    "--depth",
+                    "1",
+                    repo_url,
+                    str(dest),
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -83,7 +173,16 @@ def clone_repo(
             )
         else:
             subprocess.run(
-                ["git", *proxy_args, "clone", "--depth", "1", repo_url, str(dest)],
+                [
+                    "git",
+                    *proxy_args,
+                    "clone",
+                    "--filter=blob:none",
+                    "--depth",
+                    "1",
+                    repo_url,
+                    str(dest),
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
