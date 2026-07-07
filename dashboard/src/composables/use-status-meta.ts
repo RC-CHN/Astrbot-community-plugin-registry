@@ -6,7 +6,7 @@ import {
   versionStatusMeta,
   type StatusMeta,
 } from '@/constants/status'
-import { scanProviderEntries } from '@/utils/scans'
+import { scanHasBlockingResult, scanHasPending, scanProviderEntries } from '@/utils/scans'
 
 export function getPluginStatusMeta(status: PluginStatus): StatusMeta {
   return pluginStatusMeta[status]
@@ -22,6 +22,12 @@ export function getBuildStatusMeta(status: BuildStatus): StatusMeta {
 
 export function getScanAggregateMeta(scan: ScanSummary | null): StatusMeta {
   const entries = scanProviderEntries(scan)
+  if (scan?.required_providers) {
+    if (!scan.required_providers.length) return { label: '未启用扫描', type: 'default' }
+    if (scanHasPending(scan)) return { label: '扫描中', type: 'info' }
+    if (scanHasBlockingResult(scan)) return scanStatusMeta(false)
+    return scanStatusMeta(true)
+  }
   if (!entries.length) return scanStatusMeta(null)
   const modes = entries.map(({ result }) => result.mode)
   if (modes.some((mode) => mode === 'pending')) return { label: '扫描中', type: 'info' }

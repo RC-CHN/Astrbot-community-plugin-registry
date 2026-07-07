@@ -1,6 +1,8 @@
 import { apiRequest } from './client'
 import type {
   PluginDetail,
+  ArtifactFileResponse,
+  ArtifactTreeResponse,
   PluginListParams,
   PluginListResponse,
   PluginStatus,
@@ -101,6 +103,16 @@ export function runVersionScanProvider(pluginId: string, versionId: string, prov
 export function skipVersionScanProvider(pluginId: string, versionId: string, provider: string) {
   return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/versions/${versionId}/scans/${provider}/skip`, {
     method: 'POST',
+  })
+}
+
+export function getVersionArtifactTree(pluginId: string, versionId: string) {
+  return apiRequest<ArtifactTreeResponse>(`/admin/plugins/${pluginId}/versions/${versionId}/artifact/tree`)
+}
+
+export function getVersionArtifactFile(pluginId: string, versionId: string, path: string) {
+  return apiRequest<ArtifactFileResponse>(`/admin/plugins/${pluginId}/versions/${versionId}/artifact/file`, {
+    query: { path },
   })
 }
 

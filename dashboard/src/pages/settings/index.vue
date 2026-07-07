@@ -199,6 +199,14 @@ const editableItems: ConfigItem[] = [
     description: 'Git clone 超时时间，单位秒。',
   },
   {
+    key: 'SCAN_ENABLED_PROVIDERS',
+    label: '启用扫描 Provider',
+    group: 'scan',
+    input: 'text',
+    scope: '扫描时生效',
+    description: '逗号分隔：clamav,virustotal,llm_agent；填写 none 可关闭全部机器扫描。',
+  },
+  {
     key: 'SCAN_PASS_WHEN_UNCONFIGURED',
     label: '扫描未配置时放行',
     group: 'scan',
@@ -213,6 +221,22 @@ const editableItems: ConfigItem[] = [
     input: 'text',
     scope: '扫描时生效',
     description: '扫描服务未配置时写入的提示文本。',
+  },
+  {
+    key: 'SCAN_REQUIRE_HUMAN_REVIEW',
+    label: '需要人工审核',
+    group: 'scan',
+    input: 'boolean',
+    scope: '扫描时生效',
+    description: '开启时所有机器扫描完成后仍停在待审核，由管理员人工发布。',
+  },
+  {
+    key: 'SCAN_AUTO_PUBLISH_ENABLED',
+    label: '扫描通过自动发布',
+    group: 'scan',
+    input: 'boolean',
+    scope: '扫描时生效',
+    description: '仅在不需要人工审核时生效；启用的扫描 provider 全部通过后自动发布当前版本。',
   },
   {
     key: 'VIRUSTOTAL_TIMEOUT_SECONDS',

@@ -34,8 +34,10 @@ export type PluginSummary = {
   updated_at: string | null
 }
 
-export type ScanSummary = Record<ScanProviderName, ScanProviderResult | string | null | undefined> & {
+export type ScanSummary = {
+  [provider: ScanProviderName]: ScanProviderResult | string | string[] | null | undefined
   scanned_at?: string | null
+  required_providers?: string[] | null
 }
 
 export type VersionSummary = {
@@ -98,11 +100,36 @@ export type VersionSubmitResponse = {
   status?: string | null
 }
 
+export type ArtifactTreeEntry = {
+  path: string
+  name: string
+  kind: 'dir' | 'file'
+  size: number | null
+}
+
+export type ArtifactTreeResponse = {
+  entries: ArtifactTreeEntry[]
+}
+
+export type ArtifactFileResponse = {
+  path: string
+  name: string
+  size: number
+  language: string
+  content: string | null
+  truncated: boolean
+  binary: boolean
+}
+
 export type RegistryStats = {
   total_plugins: number
   total_active_versions: number
   total_downloads: number
   total_installs: number
+}
+
+export type RegistryMd5 = {
+  md5: string
 }
 
 export type AdminStats = {

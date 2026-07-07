@@ -11,6 +11,9 @@ export const queryKeys = {
     registry: () => ['stats', 'registry'] as const,
     admin: () => ['stats', 'admin'] as const,
   },
+  source: {
+    md5: () => ['source', 'md5'] as const,
+  },
   config: {
     system: () => ['config', 'system'] as const,
   },

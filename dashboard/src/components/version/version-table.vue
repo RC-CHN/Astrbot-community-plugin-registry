@@ -1,16 +1,19 @@
 <template>
-  <n-data-table
-    :columns="columns"
-    :data="versions"
-    :pagination="false"
-    :row-key="rowKey"
-    :scroll-x="1240"
-    size="small"
-  />
+  <div>
+    <n-data-table
+      :columns="columns"
+      :data="versions"
+      :pagination="false"
+      :row-key="rowKey"
+      :scroll-x="1240"
+      size="small"
+    />
+    <scan-detail-modal v-model:show="scanDetailVisible" :version="scanDetailVersion" />
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, h, type VNodeChild } from 'vue'
+import { computed, h, ref, type VNodeChild } from 'vue'
 import {
   NButton,
   NButtonGroup,
@@ -21,14 +24,15 @@ import {
   type DropdownOption,
 } from 'naive-ui'
 
-import type { PluginDetail, ScanProviderResult, VersionStatus, VersionSummary } from '@/api/types'
+import type { PluginDetail, VersionStatus, VersionSummary } from '@/api/types'
 import CopyableText from '@/components/common/copyable-text.vue'
 import StatusTag from '@/components/common/status-tag.vue'
+import ScanDetailModal from '@/components/version/scan-detail-modal.vue'
 import { canActivateVersion, getVersionBlockers } from '@/composables/use-plugin-actions'
 import { getScanAggregateMeta } from '@/composables/use-status-meta'
 import { formatDateTime } from '@/utils/datetime'
 import { formatFileSize } from '@/utils/file-size'
-import { providerLabel, scanProviderEntries } from '@/utils/scans'
+import { providerLabel, scanProviderEntries, scanResultMeta } from '@/utils/scans'
 
 const props = defineProps<{
   plugin: PluginDetail
@@ -42,9 +46,12 @@ const emit = defineEmits<{
   rescan: [version: VersionSummary]
   runScanProvider: [version: VersionSummary, provider: string]
   skipScanProvider: [version: VersionSummary, provider: string]
+  browseArtifact: [version: VersionSummary]
 }>()
 
 const rowKey = (row: VersionSummary) => row.id
+const scanDetailVisible = ref(false)
+const scanDetailVersion = ref<VersionSummary | null>(null)
 const SCAN_ACTION_PROVIDERS = [
   { provider: 'clamav', label: 'ClamAV' },
   { provider: 'virustotal', label: 'VirusTotal' },
@@ -92,19 +99,35 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
     width: 220,
     render(row) {
       const meta = getScanAggregateMeta(row.scan)
-      return withTooltip(
-        h('div', { class: 'scan-cell' }, [
-          h(NTag, { type: meta.type, size: 'small', round: true }, { default: () => meta.label }),
-          ...scanProviderEntries(row.scan).map(({ provider, result }) =>
-            h(
-              NTag,
-              { type: scanResultMeta(result).type, size: 'small', round: true, bordered: false },
-              { default: () => providerLabel(provider) },
-            ),
+      const entries = scanProviderEntries(row.scan)
+      return h('div', { class: 'scan-cell' }, [
+        h(NTag, { type: meta.type, size: 'small', round: true }, { default: () => meta.label }),
+        ...entries.map(({ provider, result }) =>
+          h(
+            'button',
+            {
+              class: 'scan-provider-chip',
+              type: 'button',
+              title: `查看 ${providerLabel(provider)} 扫描详情`,
+              onClick: () => openScanDetail(row),
+            },
+            [
+              h(
+                NTag,
+                { type: scanResultMeta(result).type, size: 'small', round: true, bordered: false },
+                { default: () => providerLabel(provider) },
+              ),
+            ],
           ),
-        ]),
-        scanTooltip(row),
-      )
+        ),
+        entries.length
+          ? h(
+              NButton,
+              { size: 'tiny', quaternary: true, onClick: () => openScanDetail(row) },
+              { default: () => '详情' },
+            )
+          : null,
+      ])
     },
   },
   {
@@ -146,9 +169,19 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
         },
         { default: () => '设为公开版本' },
       )
+      const browseButton = h(
+        NButton,
+        {
+          size: 'small',
+          secondary: true,
+          disabled: !row.download_url,
+          onClick: () => emit('browseArtifact', row),
+        },
+        { default: () => '浏览文件' },
+      )
       const scanDisabled = !row.download_url || row.build_status === 'scanning'
       const scanOptions: DropdownOption[] = [
-        { label: '全量扫描', key: 'rescan', disabled: scanDisabled },
+        { label: '运行启用扫描', key: 'rescan', disabled: scanDisabled },
         { type: 'divider', key: 'scan-divider' },
         ...SCAN_ACTION_PROVIDERS.flatMap(({ provider, label }) => [
           { label: `${label} 扫描`, key: `${provider}:run`, disabled: scanDisabled },
@@ -160,6 +193,7 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
           default: () => [
             activeCheck.ok ? activeButton : withTooltip(activeButton, activeCheck.reason),
             latestBlockers.length ? withTooltip(latestButton, latestBlockers.join('；')) : latestButton,
+            row.download_url ? browseButton : withTooltip(browseButton, '当前版本还没有可浏览的制品'),
           ],
         }),
         h(
@@ -189,79 +223,9 @@ function withTooltip(node: ReturnType<typeof h>, content: VNodeChild) {
   return h(NTooltip, null, { trigger: () => node, default: () => content })
 }
 
-function scanTooltip(row: VersionSummary) {
-  const entries = scanProviderEntries(row.scan)
-  if (!entries.length) return '尚未扫描'
-  return h('div', { class: 'scan-tooltip' }, entries.map(({ provider, result }) => {
-    const meta = scanResultMeta(result)
-    return h('div', { class: 'scan-tooltip-row' }, [
-      h('div', { class: 'scan-tooltip-heading' }, [
-        h('strong', null, providerLabel(provider)),
-        h(NTag, { type: meta.type, size: 'small', round: true }, { default: () => meta.label }),
-      ]),
-      h('div', { class: 'scan-tooltip-meta' }, [
-        h('span', null, modeLabel(result.mode)),
-        h('span', null, passLabel(result.pass, result.mode)),
-      ]),
-      result.msg ? h('div', { class: 'scan-tooltip-msg' }, formatScanMessage(result.msg)) : null,
-    ])
-  }))
-}
-
-function scanResultMeta(result: ScanProviderResult) {
-  if (result.mode === 'pending') return { label: '扫描中', type: 'info' as const }
-  if (result.mode === 'skipped') return { label: '已略过', type: 'warning' as const }
-  if (result.mode === 'error' || result.pass === false) return { label: '未通过', type: 'error' as const }
-  if (result.pass === true) return { label: '通过', type: 'success' as const }
-  return { label: '无结果', type: 'default' as const }
-}
-
-function formatScanMessage(message: string): string | VNodeChild[] {
-  const parsed = parseJsonMessage(message)
-  if (!parsed) return message
-
-  const rows: VNodeChild[] = []
-  if (typeof parsed.summary === 'string' && parsed.summary) rows.push(h('div', null, parsed.summary))
-  if (typeof parsed.risk_level === 'string' && parsed.risk_level) {
-    rows.push(h('div', null, `risk_level: ${parsed.risk_level}`))
-  }
-  if (typeof parsed.context_truncated === 'boolean') {
-    rows.push(h('div', null, `context_truncated: ${parsed.context_truncated}`))
-  }
-  if (Array.isArray(parsed.findings) && parsed.findings.length) {
-    rows.push(
-      h('ul', { class: 'scan-tooltip-findings' }, parsed.findings.slice(0, 5).map((finding: unknown) =>
-        h('li', null, typeof finding === 'string' ? finding : JSON.stringify(finding)),
-      )),
-    )
-  }
-  return rows.length ? rows : JSON.stringify(parsed)
-}
-
-function parseJsonMessage(message: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(message)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
-  } catch {
-    return null
-  }
-}
-
-function modeLabel(mode: string) {
-  const labels: Record<string, string> = {
-    pending: '等待中',
-    real: '真实扫描',
-    skipped: '已略过',
-    error: '扫描错误',
-  }
-  return labels[mode] || mode
-}
-
-function passLabel(value: boolean | null, mode: string) {
-  if (mode === 'pending') return '等待结果'
-  if (value === true) return '通过'
-  if (value === false) return '未通过'
-  return '无结果'
+function openScanDetail(version: VersionSummary) {
+  scanDetailVersion.value = version
+  scanDetailVisible.value = true
 }
 </script>
 
@@ -299,39 +263,11 @@ function passLabel(value: boolean | null, mode: string) {
   max-width: 210px;
 }
 
-.scan-tooltip {
-  display: grid;
-  gap: 10px;
-  max-width: 640px;
-  white-space: normal;
-}
-
-.scan-tooltip-row {
-  display: grid;
-  gap: 5px;
-}
-
-.scan-tooltip-heading {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-}
-
-.scan-tooltip-meta {
-  color: #64748b;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.scan-tooltip-msg {
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.scan-tooltip-findings {
-  margin: 4px 0 0;
-  padding-left: 18px;
+.scan-provider-chip {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
 }
 </style>

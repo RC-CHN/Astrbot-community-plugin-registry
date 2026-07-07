@@ -79,7 +79,20 @@
         </div>
         <div class="panel">
           <h2>发布阻断</h2>
-          <p class="panel-note">发布操作会同时启用插件、标记版本可发布并设为当前公开版本。</p>
+          <div class="concept-list">
+            <div>
+              <strong>审核通过</strong>
+              <span>只确认插件进入可管理状态，不会自动公开任何版本。</span>
+            </div>
+            <div>
+              <strong>发布</strong>
+              <span>要求候选版本构建成功且扫描无阻断；成功后会启用插件，并把该版本设为插件源当前公开版本。</span>
+            </div>
+            <div>
+              <strong>跳过人工审核</strong>
+              <span>只跳过人工判断，不跳过构建和安全扫描。</span>
+            </div>
+          </div>
           <publish-blocker-alert :blockers="publishCandidateBlockers" />
           <n-empty v-if="!publishCandidateBlockers.length" description="当前候选版本可以发布" />
         </div>
@@ -95,12 +108,18 @@
             @rescan="rescanVersion"
             @run-scan-provider="runScanProvider"
             @skip-scan-provider="skipScanProvider"
+            @browse-artifact="openArtifactBrowser"
           />
         </n-tab-pane>
         <n-tab-pane name="metadata" tab="元数据">
           <pre class="metadata">{{ plugin }}</pre>
         </n-tab-pane>
       </n-tabs>
+      <artifact-browser-modal
+        v-model:show="artifactBrowserVisible"
+        :plugin-id="plugin.id"
+        :version="artifactBrowserVersion"
+      />
     </template>
   </n-spin>
 </template>
@@ -115,6 +134,7 @@ import ApiErrorAlert from '@/components/common/api-error-alert.vue'
 import PageHeader from '@/components/common/page-header.vue'
 import StatusTag from '@/components/common/status-tag.vue'
 import PublishBlockerAlert from '@/components/review/publish-blocker-alert.vue'
+import ArtifactBrowserModal from '@/components/version/artifact-browser-modal.vue'
 import VersionTable from '@/components/version/version-table.vue'
 import { getVersionBlockers } from '@/composables/use-plugin-actions'
 import { usePluginDetail, usePluginMutations } from '@/query/plugins'
@@ -128,6 +148,8 @@ const mutations = usePluginMutations()
 const actionError = ref<unknown>(null)
 const plugin = computed(() => query.data.value)
 const latestCandidate = computed(() => plugin.value?.versions.find((item) => item.is_latest) || plugin.value?.versions[0])
+const artifactBrowserVisible = ref(false)
+const artifactBrowserVersion = ref<VersionSummary | null>(null)
 const publishCandidateBlockers = computed(() => {
   if (!plugin.value) return []
   if (!latestCandidate.value) return ['暂无版本']
@@ -201,6 +223,11 @@ async function skipScanProvider(version: VersionSummary, provider: string) {
   )
 }
 
+function openArtifactBrowser(version: VersionSummary) {
+  artifactBrowserVersion.value = version
+  artifactBrowserVisible.value = true
+}
+
 async function runAction(action: () => Promise<unknown>) {
   actionError.value = null
   try {
@@ -248,6 +275,34 @@ h2 {
   font-size: 13px;
   line-height: 1.6;
   margin: -4px 0 12px;
+}
+
+.concept-list {
+  display: grid;
+  gap: 8px;
+  margin: -2px 0 12px;
+}
+
+.concept-list div {
+  background: var(--surface-hover);
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.concept-list strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.concept-list span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 dl {

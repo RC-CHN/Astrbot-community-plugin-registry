@@ -48,8 +48,8 @@ import { computed, h, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { NIcon, type MenuOption } from 'naive-ui'
 import {
-  BarChart3,
   ClipboardCheck,
+  FileJson,
   Hammer,
   PanelLeftClose,
   Plus,
@@ -76,7 +76,7 @@ const menuOptions: MenuOption[] = [
   { label: '插件', key: '/plugins', icon: icon(Shield) },
   { label: '待审核', key: '/reviews', icon: icon(ClipboardCheck) },
   { label: '构建', key: '/builds', icon: icon(Hammer) },
-  { label: '统计', key: '/stats', icon: icon(BarChart3) },
+  { label: '插件源', key: '/source', icon: icon(FileJson) },
   { label: '配置', key: '/settings', icon: icon(Settings) },
   { label: '用户', key: '/users', icon: icon(Users) },
 ]
@@ -86,6 +86,7 @@ const activeMenu = computed(() => {
   if (route.path.startsWith('/plugins')) return '/plugins'
   if (route.path.startsWith('/reviews')) return '/reviews'
   if (route.path.startsWith('/builds')) return '/builds'
+  if (route.path.startsWith('/source')) return '/source'
   return route.path
 })
 
