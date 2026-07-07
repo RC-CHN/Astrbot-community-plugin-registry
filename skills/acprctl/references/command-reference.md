@@ -210,7 +210,7 @@ acprctl plugin version upload <plugin-key|id> \
   [--wait]
 ```
 
-Set latest:
+Set the registry current version:
 
 ```bash
 acprctl plugin version set-latest <plugin-key|id> --version v1.0.0
@@ -249,7 +249,7 @@ acprctl review delete <plugin-key|id> --yes
 ```
 
 `review list` is a filtered `plugin list` for pending plugins.
-`review publish` and `review skip` publish atomically on the backend. They enable the plugin, mark the selected version publishable, set it as the current public version, and refresh cache only after build succeeds and recorded scan results are non-blocking. `review skip` skips human review only; it does not bypass pending, errored, or real failed scan results.
+`review publish` and `review skip` publish atomically on the backend. They enable the plugin, mark the selected version as a release candidate, set it as the registry current version, and refresh cache only after build succeeds and recorded scan results are non-blocking. `review publish` records human review as approved. `review skip` records human review as skipped; it does not bypass pending, errored, or real failed scan results.
 
 ## Runtime Config, Cache, and Stats
 

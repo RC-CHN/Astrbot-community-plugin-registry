@@ -33,7 +33,7 @@ Load only the reference needed for the task:
 - Connect to the service origin, not to a private backend container. The CLI normalizes the origin to `/api/v1`.
 - Prefer `--format json` for automation and agent use; use table output only for human inspection.
 - Use command flags or `ACPRCTL_*` environment variables for agent runs. Avoid writing shared config files on multi-user hosts.
-- Do not bypass backend publishing rules. `review publish` and `review skip` use the backend atomic publish endpoint and still require build and scan checks to pass; `review skip` only skips human review.
+- Do not bypass backend publishing rules. `review publish` and `review skip` use the backend atomic publish endpoint and still require build and scan checks to pass. `review publish` records human review as approved; `review skip` records human review as skipped.
 - Treat destructive operations as explicit: use `--yes` only when the user clearly asked for deletion.
 - Never print or persist admin passwords, API keys, tokens, webhook secrets, VT keys, LLM keys, or other scan provider secrets in conversation output.
 

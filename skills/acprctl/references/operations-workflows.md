@@ -126,19 +126,19 @@ Provider names are `clamav`, `virustotal`, `llm_agent`, and `all`.
 
 ## Review and Publish
 
-Approve plugin metadata only:
+Mark human review approved without publishing a version:
 
 ```bash
 acprctl review approve astrbot-plugin-example
 ```
 
-Publish a specific version:
+Publish a specific version and record human review as approved:
 
 ```bash
 acprctl review publish astrbot-plugin-example --version v1.1.0
 ```
 
-Skip review and publish:
+Publish a specific version and record human review as skipped:
 
 ```bash
 acprctl review skip astrbot-plugin-example --version v1.1.0
@@ -156,7 +156,7 @@ Delete only with explicit user intent:
 acprctl review delete astrbot-plugin-example --yes
 ```
 
-Publishing is a backend-atomic operation. It enables the plugin, records the review status, marks the selected version publishable, sets it as the current public version, and refreshes the registry cache only after build succeeds and recorded scan results are non-blocking. Blocking scan results are pending, errored, or real failed results; skipped providers do not block.
+Publishing is a backend-atomic operation. It enables the plugin, records the human review status, marks the selected version as a release candidate, sets it as the registry current version, and refreshes the registry cache only after build succeeds and recorded scan results are non-blocking. Blocking scan results are pending, errored, or real failed results; skipped providers do not block.
 
 ## Version Management
 
@@ -166,7 +166,7 @@ List versions:
 acprctl plugin version list astrbot-plugin-example
 ```
 
-Set latest:
+Set the registry current version:
 
 ```bash
 acprctl plugin version set-latest astrbot-plugin-example --version v1.1.0

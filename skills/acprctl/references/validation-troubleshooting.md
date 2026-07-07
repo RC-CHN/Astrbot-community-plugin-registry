@@ -311,7 +311,7 @@ Confirm:
 - target version exists
 - target version build succeeded
 - scan results pass or have been explicitly skipped according to policy
-- plugin review decision is intentional
+- the human review decision is intentional
 
 Publish:
 
@@ -325,7 +325,7 @@ If publish fails, inspect the blocking state:
 acprctl --format json plugin show <plugin-key-or-id>
 ```
 
-Publishing is atomic on the backend. It should not leave a plugin half-published; fix the reported blocker, then retry `acprctl review publish`.
+Publishing is atomic on the backend. It should not leave a plugin half-published; fix the reported blocker, then retry `acprctl review publish` or `acprctl review skip` according to the intended human review result.
 
 ## Webhook Verification
 
@@ -390,7 +390,7 @@ acprctl config set \
   --key WEBHOOK_AUTO_VERSION --value auto
 ```
 
-Refresh public registry cache after status or latest-version repairs:
+Refresh public registry cache after status or registry-current-version repairs:
 
 ```bash
 acprctl cache refresh

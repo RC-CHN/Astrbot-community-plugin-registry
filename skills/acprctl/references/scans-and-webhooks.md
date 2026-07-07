@@ -91,8 +91,9 @@ acprctl config set \
 
 VirusTotal uploads return an analysis ID before the remote analysis is complete.
 While waiting, the provider stays `pending` with `pass=null`; it is not
-publishable while any recorded provider is pending, errored, or failed. A
-provider with `mode=skipped` is treated as an explicit administrative skip.
+eligible for release-candidate or publish operations while any recorded provider
+is pending, errored, or failed. A provider with `mode=skipped` is treated as an
+explicit administrative skip.
 
 Show unconfigured skipped providers as passing:
 
