@@ -24,7 +24,7 @@ Load only the reference needed for the task:
 - `references/command-reference.md`: exact command syntax, flags, config precedence, output, and exit codes.
 - `references/operations-workflows.md`: step-by-step workflows for submit, upload, build, scan, review, publish, config, and cache work.
 - `references/deployment-and-connection.md`: dev/prod connection, HTTP vs Caddy TLS deployment, release assets, GHCR image tags, and agent skill installation.
-- `references/scans-and-webhooks.md`: VirusTotal/LLM scan configuration, scan waits, GitHub webhook setup, and webhook verification.
+- `references/scans-and-webhooks.md`: ClamAV/VirusTotal/LLM scan configuration, scan waits, GitHub webhook setup, and webhook verification.
 - `references/validation-troubleshooting.md`: service validation, production health checks, common failures, and recovery steps.
 - `references/implementation-coverage.md`: released CLI capability coverage and known operational boundaries.
 
@@ -35,7 +35,7 @@ Load only the reference needed for the task:
 - Use command flags or `ACPRCTL_*` environment variables for agent runs. Avoid writing shared config files on multi-user hosts.
 - Do not bypass backend publishing rules. `review publish` and `review skip` use the backend atomic publish endpoint and still require build and scan checks to pass; `review skip` only skips human review.
 - Treat destructive operations as explicit: use `--yes` only when the user clearly asked for deletion.
-- Never print or persist admin passwords, API keys, tokens, webhook secrets, VT keys, or LLM keys in conversation output.
+- Never print or persist admin passwords, API keys, tokens, webhook secrets, VT keys, LLM keys, or other scan provider secrets in conversation output.
 
 ## Fast Path
 

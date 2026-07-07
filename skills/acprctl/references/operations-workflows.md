@@ -95,7 +95,7 @@ Run one provider:
 ```bash
 acprctl plugin version scan run astrbot-plugin-example \
   --version v1.1.0 \
-  --provider llm_agent \
+  --provider clamav \
   --wait
 ```
 
@@ -107,7 +107,7 @@ acprctl plugin version scan skip astrbot-plugin-example \
   --provider virustotal
 ```
 
-Provider names are `virustotal`, `llm_agent`, and `all`.
+Provider names are `clamav`, `virustotal`, `llm_agent`, and `all`.
 
 ## Review and Publish
 
@@ -141,7 +141,7 @@ Delete only with explicit user intent:
 acprctl review delete astrbot-plugin-example --yes
 ```
 
-Publishing is a backend-atomic operation. It enables the plugin, records the review status, marks the selected version publishable, sets it as the current public version, and refreshes the registry cache only after build and scan checks pass.
+Publishing is a backend-atomic operation. It enables the plugin, records the review status, marks the selected version publishable, sets it as the current public version, and refreshes the registry cache only after build succeeds and recorded scan results are non-blocking. Blocking scan results are pending, errored, or real failed results; skipped providers do not block.
 
 ## Version Management
 

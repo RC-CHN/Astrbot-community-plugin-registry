@@ -149,6 +149,8 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  stats")
 	fmt.Fprintln(w, "  plugin list|show|submit|upload|update|delete|set-status|build|scan|version")
 	fmt.Fprintln(w, "  review list|approve|publish|skip|disable|delete")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "scan providers: clamav|virustotal|llm_agent|all")
 }
 
 func parseGlobalFlags(args []string) (globalFlags, []string, error) {
@@ -1037,7 +1039,7 @@ func handlePluginScan(args []string, options runtimeOptions, c *client) (any, *c
 		return nil, err
 	}
 	if options.Wait {
-		waitResult, err := waitForScanProviders(c, pluginID, versionID, []string{"virustotal", "llm_agent"}, options)
+		waitResult, err := waitForScanProviders(c, pluginID, versionID, scanProvidersForWait("all"), options)
 		if err != nil {
 			return nil, err
 		}
@@ -1543,7 +1545,12 @@ func waitForScanProviders(c *client, pluginRef string, versionRef string, provid
 					return nil, scanErr
 				}
 				if done {
-					return map[string]any{"status": "success", "plugin": detail, "version": version, "providers": providers}, nil
+					return map[string]any{
+						"status":    "success",
+						"plugin":    detail,
+						"version":   version,
+						"providers": resolvedScanProviders(version, providers),
+					}, nil
 				}
 			}
 		}
@@ -1563,7 +1570,11 @@ func scanProvidersDone(version map[string]any, providers []string) (bool, *cliEr
 	if len(scan) == 0 {
 		return false, nil
 	}
-	for _, provider := range providers {
+	resolvedProviders := resolvedScanProviders(version, providers)
+	if len(resolvedProviders) == 0 {
+		return false, nil
+	}
+	for _, provider := range resolvedProviders {
 		result := mapField(scan, provider)
 		if len(result) == 0 {
 			return false, nil
@@ -1574,6 +1585,9 @@ func scanProvidersDone(version map[string]any, providers []string) (bool, *cliEr
 		}
 		if mode == "error" {
 			return false, &cliError{Message: "Scan failed", Code: exitGeneral}
+		}
+		if mode == "skipped" {
+			continue
 		}
 		passed, ok := boolField(result, "pass")
 		if !ok {
@@ -1588,9 +1602,27 @@ func scanProvidersDone(version map[string]any, providers []string) (bool, *cliEr
 
 func scanProvidersForWait(provider string) []string {
 	if provider == "all" {
-		return []string{"virustotal", "llm_agent"}
+		return nil
 	}
 	return []string{provider}
+}
+
+func resolvedScanProviders(version map[string]any, providers []string) []string {
+	if len(providers) > 0 {
+		return providers
+	}
+	scan := mapField(version, "scan")
+	resolved := make([]string, 0, len(scan))
+	for key, value := range scan {
+		if key == "scanned_at" {
+			continue
+		}
+		if _, ok := value.(map[string]any); ok {
+			resolved = append(resolved, key)
+		}
+	}
+	sort.Strings(resolved)
+	return resolved
 }
 
 func pickWaitVersion(detail map[string]any, versionRef string) (map[string]any, bool) {

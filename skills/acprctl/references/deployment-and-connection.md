@@ -58,6 +58,15 @@ Use default dev credentials only for the dev stack:
 ./acprctl --server-url http://localhost:3001 --username admin --password admin123456 stats
 ```
 
+Optional local ClamAV:
+
+```bash
+cd dev
+docker compose --profile clamav up -d clamav backend worker
+```
+
+Set `CLAMAV_ENABLED=true` and `CLAMAV_HOST=clamav` in `dev/.env` before using the ClamAV provider.
+
 Write a local config when repeatedly testing:
 
 ```bash
@@ -106,6 +115,16 @@ For temporary HTTP-only testing:
 ```bash
 acprctl --server-url http://203.0.113.10:3001 --username admin --password '<admin-password>' stats
 ```
+
+Optional production ClamAV with Docker Compose:
+
+```bash
+cd deploy
+docker compose --env-file .env -f compose.yml --profile clamav up -d clamav
+docker compose --env-file .env -f compose.yml up -d backend worker
+```
+
+Set `CLAMAV_ENABLED=true`, `CLAMAV_HOST=clamav`, and `CLAMAV_PORT=3310` in `deploy/.env`.
 
 ## Production Caddy Mode
 

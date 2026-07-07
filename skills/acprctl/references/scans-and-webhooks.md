@@ -1,12 +1,13 @@
 # Scans and Webhooks
 
-Use this reference for VirusTotal, LLM scanning, scan waits, and GitHub webhook setup.
+Use this reference for ClamAV, VirusTotal, LLM scanning, scan waits, and GitHub webhook setup.
 
 ## Scan Providers
 
 Supported provider names:
 
 ```text
+clamav
 virustotal
 llm_agent
 all
@@ -24,6 +25,12 @@ VIRUSTOTAL_MAX_POLL_INTERVAL_SECONDS
 VIRUSTOTAL_MAX_POLL_ATTEMPTS
 VIRUSTOTAL_MAX_WAIT_SECONDS
 VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES
+CLAMAV_ENABLED
+CLAMAV_HOST
+CLAMAV_PORT
+CLAMAV_TIMEOUT_SECONDS
+CLAMAV_STREAM_CHUNK_BYTES
+CLAMAV_MAX_STREAM_BYTES
 LLM_AGENT_ENABLED
 LLM_AGENT_BASE_URL
 LLM_AGENT_MODEL
@@ -53,6 +60,15 @@ Enable VirusTotal:
 acprctl config set --key VIRUSTOTAL_API_KEY --value '<vt-api-key>'
 ```
 
+Enable ClamAV when a clamd TCP endpoint is reachable from backend and worker:
+
+```bash
+acprctl config set \
+  --key CLAMAV_ENABLED --value true \
+  --key CLAMAV_HOST --value clamav \
+  --key CLAMAV_PORT --value 3310
+```
+
 Tune VirusTotal asynchronous polling:
 
 ```bash
@@ -64,16 +80,16 @@ acprctl config set \
 
 VirusTotal uploads return an analysis ID before the remote analysis is complete.
 While waiting, the provider stays `pending` with `pass=null`; it is not
-publishable until VirusTotal and LLM both explicitly pass or an administrator
-skips a provider.
+publishable while any recorded provider is pending, errored, or failed. A
+provider with `mode=skipped` is treated as an explicit administrative skip.
 
-Allow publishing when automatic scans are deliberately disabled to save resources:
+Show unconfigured skipped providers as passing:
 
 ```bash
 acprctl config set --key SCAN_PASS_WHEN_UNCONFIGURED --value true
 ```
 
-Strict production default:
+Show unconfigured skipped providers as not passing:
 
 ```bash
 acprctl config set --key SCAN_PASS_WHEN_UNCONFIGURED --value false
@@ -105,10 +121,11 @@ acprctl plugin version scan skip <plugin-key|id> \
 ```
 
 `--wait` polls plugin detail until the selected providers have non-pending scan results, a provider fails, the build fails, or timeout occurs.
+For `--provider all`, `acprctl` waits for the providers that appear in the live version detail response, so it works across registries with different provider sets.
 
 ## Queue and Parallelism
 
-Build and scan requests enter the backend task queue when Redis is available. Worker concurrency comes from the number of worker containers/processes. Scan provider execution inside one scan task is provider-parallel: VirusTotal and LLM scans are launched together when both providers are requested.
+Build and scan requests enter the backend task queue when Redis is available. Worker concurrency comes from the number of worker containers/processes. Scan provider execution inside one scan task is provider-parallel: ClamAV, VirusTotal, and LLM scans are launched together when requested.
 
 If scans never complete:
 

@@ -83,6 +83,6 @@ acprctl
 - Config parsing is intentionally simple and supports the flat key-value config that `configure` writes. It is not a general YAML parser.
 - Some enum validation is delegated to the server, so invalid statuses/providers may return server validation errors.
 - Wait success for build workflows is based on a version reaching `build_status=success`.
-- Wait success for scan workflows requires selected scan providers to have completed passing or skipped results.
+- Wait success for scan workflows requires selected scan providers to reach passed or skipped results. For `--provider all`, the CLI waits for providers present in the live version detail response.
 - `review publish` and `review skip` use the backend atomic publish endpoint.
 - Public plugin search and user management are outside the current administrator CLI scope.

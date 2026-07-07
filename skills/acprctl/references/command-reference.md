@@ -226,12 +226,12 @@ Run or skip provider scans:
 ```bash
 acprctl plugin version scan run <plugin-key|id> \
   --version v1.0.0 \
-  --provider virustotal|llm_agent|all \
+  --provider clamav|virustotal|llm_agent|all \
   [--wait]
 
 acprctl plugin version scan skip <plugin-key|id> \
   --version v1.0.0 \
-  --provider virustotal|llm_agent|all
+  --provider clamav|virustotal|llm_agent|all
 ```
 
 ## Review Commands
@@ -246,7 +246,7 @@ acprctl review delete <plugin-key|id> --yes
 ```
 
 `review list` is a filtered `plugin list` for pending plugins.
-`review publish` and `review skip` publish atomically on the backend. They enable the plugin, mark the selected version publishable, set it as the current public version, and refresh cache only after build and scan checks pass. `review skip` skips human review only; it does not bypass security scans.
+`review publish` and `review skip` publish atomically on the backend. They enable the plugin, mark the selected version publishable, set it as the current public version, and refresh cache only after build succeeds and recorded scan results are non-blocking. `review skip` skips human review only; it does not bypass pending, errored, or real failed scan results.
 
 ## Runtime Config, Cache, and Stats
 

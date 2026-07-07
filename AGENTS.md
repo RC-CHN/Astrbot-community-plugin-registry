@@ -195,19 +195,19 @@ acprctl --server-url "$PUBLIC_ORIGIN" --username admin --password '<admin-passwo
 
 ## Scanning Policy
 
-Production default:
+Production default recording policy:
 
 ```env
 SCAN_PASS_WHEN_UNCONFIGURED=false
 ```
 
-This blocks publishing when automatic scans are unavailable. If automatic scanning is intentionally disabled to save resources, set:
+There is no fixed required-provider list. Publishing is blocked only by existing scan results that are pending, errored, or real failed results; skipped unconfigured providers do not block publishing. `SCAN_PASS_WHEN_UNCONFIGURED` only controls the recorded `pass` value when an unconfigured provider is triggered. To show skipped results as passing, set:
 
 ```env
 SCAN_PASS_WHEN_UNCONFIGURED=true
 ```
 
-In that mode, rely on manual review and admin controls before publishing.
+When automatic scanning is disabled, rely on manual review and admin controls before publishing.
 
 LLM scanning requires:
 
@@ -217,6 +217,8 @@ LLM scanning requires:
 - `LLM_AGENT_API_KEY`
 
 VirusTotal scanning requires `VIRUSTOTAL_API_KEY`.
+
+ClamAV scanning is optional and self-hosted. Docker Compose provides it behind the `clamav` profile; Kubernetes includes `deploy/kubernetes/clamav.yaml` with `replicas: 0` by default. Enable it by setting `CLAMAV_ENABLED=true`, pointing `CLAMAV_HOST`/`CLAMAV_PORT` at clamd, and starting/scaling the ClamAV service.
 
 ## GitHub Webhook
 

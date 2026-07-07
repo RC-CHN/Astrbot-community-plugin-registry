@@ -268,6 +268,9 @@ LLM_AGENT_ENABLED
 LLM_AGENT_BASE_URL
 LLM_AGENT_MODEL
 LLM_AGENT_API_KEY
+CLAMAV_ENABLED
+CLAMAV_HOST
+CLAMAV_PORT
 SCAN_PASS_WHEN_UNCONFIGURED
 ```
 
@@ -282,7 +285,7 @@ Run one provider:
 ```bash
 acprctl plugin version scan run <plugin-key-or-id> \
   --version <version> \
-  --provider llm_agent \
+  --provider clamav \
   --wait \
   --wait-timeout 600s
 ```
