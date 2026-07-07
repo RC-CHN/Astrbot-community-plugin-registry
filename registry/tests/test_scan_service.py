@@ -4,14 +4,16 @@ from astrbot_registry.services.scan_service import (
     ScanOutcome,
     _build_llm_context,
     _can_mark_build_scanning,
+    _format_clamav_reply,
     _format_virustotal_result,
     _poll_virustotal_analysis,
     _parse_llm_response,
     _scan_llm,
     _scan_selected_providers,
     _scan_virustotal,
+    scan_providers_passed,
 )
-from astrbot_registry.models import PluginVersion
+from astrbot_registry.models import PluginVersion, ReviewProviderResult
 
 
 def test_format_virustotal_result_passes_clean_analysis() -> None:
@@ -107,6 +109,7 @@ async def test_selected_scan_providers_run_concurrently(monkeypatch) -> None:
             version,
             {"virustotal", "llm_agent"},
             {"pass_when_unconfigured": True, "message": "skipped"},
+            clamav_config=None,
             vt_config={"api_key": "vt-key"},
             llm_config={
                 "enabled": True,
@@ -121,6 +124,33 @@ async def test_selected_scan_providers_run_concurrently(monkeypatch) -> None:
 
     assert outcomes["virustotal"].message == "vt ok"
     assert outcomes["llm_agent"].message == "llm ok"
+
+
+def test_scan_passed_ignores_skipped_provider_results() -> None:
+    version = PluginVersion()
+    version.provider_results = [
+        ReviewProviderResult(provider="clamav", kind="scan", mode="skipped", passed=False),
+        ReviewProviderResult(provider="virustotal", kind="scan", mode="real", passed=True),
+    ]
+
+    assert scan_providers_passed(version) is True
+
+
+def test_scan_passed_blocks_failed_real_provider_result() -> None:
+    version = PluginVersion()
+    version.provider_results = [
+        ReviewProviderResult(provider="clamav", kind="scan", mode="real", passed=True),
+        ReviewProviderResult(provider="llm_agent", kind="scan", mode="real", passed=False),
+    ]
+
+    assert scan_providers_passed(version) is False
+
+
+def test_format_clamav_reply() -> None:
+    assert _format_clamav_reply("stream: OK").passed is True
+    infected = _format_clamav_reply("stream: Eicar-Test-Signature FOUND")
+    assert infected.passed is False
+    assert infected.mode == "real"
 
 
 @pytest.mark.asyncio

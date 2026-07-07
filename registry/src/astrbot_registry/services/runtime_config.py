@@ -155,6 +155,32 @@ async def runtime_virustotal_config(db: AsyncSession) -> dict[str, Any]:
     }
 
 
+async def runtime_clamav_config(db: AsyncSession) -> dict[str, Any]:
+    return {
+        "enabled": await get_runtime_value(db, "CLAMAV_ENABLED", settings.clamav_enabled, bool),
+        "host": await get_runtime_value(db, "CLAMAV_HOST", settings.clamav_host, str),
+        "port": await get_runtime_value(db, "CLAMAV_PORT", settings.clamav_port, int),
+        "timeout_seconds": await get_runtime_value(
+            db,
+            "CLAMAV_TIMEOUT_SECONDS",
+            settings.clamav_timeout_seconds,
+            int,
+        ),
+        "stream_chunk_bytes": await get_runtime_value(
+            db,
+            "CLAMAV_STREAM_CHUNK_BYTES",
+            settings.clamav_stream_chunk_bytes,
+            int,
+        ),
+        "max_stream_bytes": await get_runtime_value(
+            db,
+            "CLAMAV_MAX_STREAM_BYTES",
+            settings.clamav_max_stream_bytes,
+            int,
+        ),
+    }
+
+
 async def runtime_llm_agent_config(db: AsyncSession) -> dict[str, Any]:
     return {
         "enabled": await get_runtime_value(db, "LLM_AGENT_ENABLED", settings.llm_agent_enabled, bool),

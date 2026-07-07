@@ -68,7 +68,13 @@ from ..services.runtime_config import (
     runtime_webhook_auto_version,
     runtime_webhook_secret,
 )
-from ..services.scan_service import mark_scan_pending, mark_scan_skipped, scan_version
+from ..services.scan_service import (
+    SCAN_PROVIDER_ORDER,
+    mark_scan_pending,
+    mark_scan_skipped,
+    scan_version,
+    version_scan_summary,
+)
 from ..services.security_service import login_rate_limit_keys, login_rate_limiter
 from ..services.submit_service import submit_repo
 from ..services.task_queue import enqueue_task
@@ -85,7 +91,6 @@ admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 def _version_summary(version) -> dict:
-    scan = version.scan
     return {
         "id": str(version.id),
         "version": version.version,
@@ -99,21 +104,7 @@ def _version_summary(version) -> dict:
         "file_size": version.file_size,
         "created_at": version.created_at,
         "updated_at": version.updated_at,
-        "scan": {
-            "virustotal": {
-                "pass": scan.virustotal_pass,
-                "msg": scan.virustotal_msg,
-                "mode": scan.virustotal_mode,
-            },
-            "llm_agent": {
-                "pass": scan.llm_agent_pass,
-                "msg": scan.llm_agent_msg,
-                "mode": scan.llm_agent_mode,
-            },
-            "scanned_at": scan.scanned_at.isoformat() if scan.scanned_at else None,
-        }
-        if scan
-        else None,
+        "scan": version_scan_summary(version),
     }
 
 
@@ -577,7 +568,7 @@ async def trigger_scan(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_reviewer),
 ) -> dict:
-    providers = ["virustotal", "llm_agent"]
+    providers = list(SCAN_PROVIDER_ORDER)
     await mark_scan_pending(db, uuid.UUID(version_id), providers=providers)
     await _enqueue_or_fallback(background_tasks, "scan", {"version_id": version_id, "providers": providers}, db)
     return {"status": "queued"}
@@ -612,8 +603,8 @@ async def skip_scan_provider(
 
 def _scan_providers(provider: str) -> list[str]:
     if provider == "all":
-        return ["virustotal", "llm_agent"]
-    if provider in {"virustotal", "llm_agent"}:
+        return list(SCAN_PROVIDER_ORDER)
+    if provider in SCAN_PROVIDER_ORDER:
         return [provider]
     raise HTTPException(status_code=400, detail="Invalid scan provider")
 

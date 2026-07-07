@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Any
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,6 +12,7 @@ from ..cache import get_redis
 from ..models import Plugin, PluginVersion, PluginVersionStat
 from ..services.plugin_service import scan_passed
 from ..services.runtime_config import runtime_redis_cache_ttl, runtime_s3_public_url
+from ..services.scan_service import public_sec_scan
 
 CACHE_KEY = "registry_json"
 MD5_KEY = "registry_md5"
@@ -111,26 +112,6 @@ def _get_latest(versions: list[PluginVersion]) -> PluginVersion | None:
 
 
 def _format_entry(plugin: Plugin, version: PluginVersion, s3_public_url: str | None = None) -> dict[str, Any]:
-    scan = version.scan
-    if scan:
-        sec_scan = {
-            "virustotal": {
-                "pass": bool(scan.virustotal_pass),
-                "msg": scan.virustotal_msg or "",
-                "mode": scan.virustotal_mode,
-            },
-            "llm_agent": {
-                "pass": bool(scan.llm_agent_pass),
-                "msg": scan.llm_agent_msg or "",
-                "mode": scan.llm_agent_mode,
-            },
-        }
-    else:
-        sec_scan = {
-            "virustotal": {"pass": False, "msg": "not scanned", "mode": "pending"},
-            "llm_agent": {"pass": False, "msg": "not scanned", "mode": "pending"},
-        }
-
     tags = [t.name for t in plugin.tags]
     return {
         "name": plugin.plugin_key,
@@ -149,7 +130,7 @@ def _format_entry(plugin: Plugin, version: PluginVersion, s3_public_url: str | N
         "logo": _logo_url(plugin.logo_s3_key, s3_public_url=s3_public_url),
         "commit_sha": version.commit_sha,
         "download_url": version.download_url or "",
-        "sec_scan": sec_scan,
+        "sec_scan": public_sec_scan(version, coerce_unknown_to_false=True),
         "i18n": {i.locale: i.data for i in plugin.i18n_entries},
         "astrbot_version": plugin.astrbot_version,
         "support_platforms": plugin.support_platforms or [],
@@ -174,6 +155,7 @@ async def _fetch_active_plugins(db: AsyncSession) -> list[Plugin]:
             selectinload(Plugin.tags),
             selectinload(Plugin.i18n_entries),
             selectinload(Plugin.versions).selectinload(PluginVersion.scan),
+            selectinload(Plugin.versions).selectinload(PluginVersion.provider_results),
         )
     )
     return list(result.scalars().unique().all())

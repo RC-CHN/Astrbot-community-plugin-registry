@@ -2,6 +2,7 @@ from astrbot_registry.models import (
     Plugin,
     PluginVersion,
     PluginVersionStat,
+    ReviewProviderResult,
     SecurityScan,
     SystemConfig,
     User,
@@ -49,6 +50,17 @@ def test_security_scan_mode_constraints_are_declared() -> None:
 
     assert "ck_security_scans_virustotal_mode" in constraint_names
     assert "ck_security_scans_llm_agent_mode" in constraint_names
+
+
+def test_review_provider_result_constraints_and_indexes_are_declared() -> None:
+    constraint_names = {constraint.name for constraint in ReviewProviderResult.__table__.constraints}
+    index_names = {index.name for index in ReviewProviderResult.__table__.indexes}
+
+    assert "uq_review_provider_version_provider" in constraint_names
+    assert "ck_review_provider_kind" in constraint_names
+    assert "ck_review_provider_mode" in constraint_names
+    assert "idx_review_provider_version" in index_names
+    assert "idx_review_provider_provider_mode" in index_names
 
 
 def test_version_stats_constraints_and_indexes_are_declared() -> None:

@@ -33,6 +33,17 @@ def test_config_response_includes_llm_runtime_defaults() -> None:
     assert "LLM_AGENT_API_KEY" in response["sensitive_keys"]
 
 
+def test_config_response_includes_clamav_runtime_defaults() -> None:
+    response = build_config_response({})
+
+    assert response["effective_values"]["CLAMAV_ENABLED"] == "False"
+    assert response["effective_values"]["CLAMAV_HOST"] == "clamav"
+    assert response["effective_values"]["CLAMAV_PORT"] == "3310"
+    assert response["effective_values"]["CLAMAV_TIMEOUT_SECONDS"] == "120"
+    assert response["effective_values"]["CLAMAV_STREAM_CHUNK_BYTES"] == str(1024 * 1024)
+    assert response["effective_values"]["CLAMAV_MAX_STREAM_BYTES"] == str(100 * 1024 * 1024)
+
+
 def test_config_response_redacts_sensitive_values() -> None:
     response = build_config_response({"GITHUB_WEBHOOK_SECRET": "secret"})
 

@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     virustotal_max_poll_attempts: int = 24
     virustotal_max_wait_seconds: int = 1800
     virustotal_max_direct_upload_bytes: int = 32 * 1024 * 1024
+    clamav_enabled: bool = False
+    clamav_host: str = "clamav"
+    clamav_port: int = 3310
+    clamav_timeout_seconds: int = 120
+    clamav_stream_chunk_bytes: int = 1024 * 1024
+    clamav_max_stream_bytes: int = 100 * 1024 * 1024
     llm_agent_enabled: bool = False
     llm_agent_base_url: str = ""
     llm_agent_model: str = ""
@@ -108,7 +114,12 @@ class Settings(BaseSettings):
         "env_file_encoding": "utf-8",
     }
 
-    @field_validator("git_allowed_hosts", "trusted_hosts", "cors_allow_origins", mode="before")
+    @field_validator(
+        "git_allowed_hosts",
+        "trusted_hosts",
+        "cors_allow_origins",
+        mode="before",
+    )
     @classmethod
     def parse_csv_list(cls, value):
         if isinstance(value, str):

@@ -13,6 +13,7 @@ from ..schemas.plugin import PluginUpdate
 from ..services.errors import ConflictError, InvalidStateError, NotFoundError, ValidationError
 from ..services.runtime_config import runtime_s3_layout, runtime_s3_public_url
 from ..services.s3_service import build_public_url_with_base, build_s3_key_with_layout, upload_file
+from ..services.scan_service import scan_providers_passed
 from ..utils.metadata_parser import PluginMetadata, infer_plugin_key
 
 
@@ -33,6 +34,7 @@ async def get_plugin_with_details(db: AsyncSession, plugin_id: uuid.UUID) -> Plu
             selectinload(Plugin.tags),
             selectinload(Plugin.i18n_entries),
             selectinload(Plugin.versions).selectinload(PluginVersion.scan),
+            selectinload(Plugin.versions).selectinload(PluginVersion.provider_results),
         )
     )
     return result.scalar_one_or_none()
@@ -62,7 +64,10 @@ async def get_latest_version(db: AsyncSession, plugin_id: uuid.UUID) -> PluginVe
         .where(PluginVersion.is_latest.is_(True))
         .where(PluginVersion.version_status == "active")
         .where(PluginVersion.build_status == "success")
-        .options(selectinload(PluginVersion.scan))
+        .options(
+            selectinload(PluginVersion.scan),
+            selectinload(PluginVersion.provider_results),
+        )
     )
     version = result.scalar_one_or_none()
     if version is None or not scan_passed(version):
@@ -254,7 +259,10 @@ async def set_version_status(
         result = await db.execute(
             select(PluginVersion)
             .where(PluginVersion.id == version_id)
-            .options(selectinload(PluginVersion.scan))
+            .options(
+                selectinload(PluginVersion.scan),
+                selectinload(PluginVersion.provider_results),
+            )
         )
         version = result.scalar_one()
         if not scan_passed(version):
@@ -286,7 +294,10 @@ async def set_latest_version(
     result = await db.execute(
         select(PluginVersion)
         .where(PluginVersion.plugin_id == plugin_id)
-        .options(selectinload(PluginVersion.scan))
+        .options(
+            selectinload(PluginVersion.scan),
+            selectinload(PluginVersion.provider_results),
+        )
         .with_for_update()
     )
     versions = result.scalars().all()
@@ -333,7 +344,10 @@ async def publish_plugin_version(
     result = await db.execute(
         select(PluginVersion)
         .where(PluginVersion.plugin_id == plugin_id)
-        .options(selectinload(PluginVersion.scan))
+        .options(
+            selectinload(PluginVersion.scan),
+            selectinload(PluginVersion.provider_results),
+        )
         .with_for_update()
     )
     versions = result.scalars().all()
@@ -367,7 +381,10 @@ async def list_versions(
     result = await db.execute(
         select(PluginVersion)
         .where(PluginVersion.plugin_id == plugin_id)
-        .options(selectinload(PluginVersion.scan))
+        .options(
+            selectinload(PluginVersion.scan),
+            selectinload(PluginVersion.provider_results),
+        )
         .order_by(PluginVersion.created_at.desc())
     )
     return result.scalars().all()
@@ -417,7 +434,8 @@ async def list_active_plugins_with_versions(
         .options(
             selectinload(Plugin.tags),
             selectinload(Plugin.i18n_entries),
-            selectinload(Plugin.versions),
+            selectinload(Plugin.versions).selectinload(PluginVersion.scan),
+            selectinload(Plugin.versions).selectinload(PluginVersion.provider_results),
         )
     )
     return result.scalars().unique().all()
@@ -455,10 +473,7 @@ async def create_version_from_upload(
 
 
 def scan_passed(version: PluginVersion) -> bool:
-    scan = version.scan
-    if scan is None:
-        return False
-    return bool(scan.virustotal_pass) and bool(scan.llm_agent_pass)
+    return scan_providers_passed(version)
 
 
 def assert_metadata_matches_plugin(metadata: PluginMetadata, plugin: Plugin) -> None:

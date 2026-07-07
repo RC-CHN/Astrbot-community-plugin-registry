@@ -22,7 +22,7 @@ from ..database import Base
 
 if TYPE_CHECKING:
     from .plugin import Plugin
-    from .scan import SecurityScan
+    from .scan import ReviewProviderResult, SecurityScan
     from .user import User
 
 
@@ -117,5 +117,10 @@ class PluginVersion(Base):
         "SecurityScan",
         back_populates="version",
         uselist=False,
+    )
+    provider_results: Mapped[list["ReviewProviderResult"]] = relationship(
+        "ReviewProviderResult",
+        back_populates="version",
+        cascade="all, delete-orphan",
     )
     creator: Mapped[Optional["User"]] = relationship("User", back_populates="versions")

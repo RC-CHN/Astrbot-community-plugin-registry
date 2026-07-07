@@ -24,7 +24,7 @@ def _plugin() -> Plugin:
     return plugin
 
 
-def _version(*, scanned: bool, build_status: str = "success") -> PluginVersion:
+def _version(*, scanned: bool, build_status: str = "success", scan_pass: bool = True) -> PluginVersion:
     version = PluginVersion(
         id=uuid.uuid4(),
         plugin_id=uuid.uuid4(),
@@ -40,15 +40,18 @@ def _version(*, scanned: bool, build_status: str = "success") -> PluginVersion:
     if scanned:
         version.scan = SecurityScan(
             version_id=version.id,
-            virustotal_pass=True,
+            virustotal_pass=scan_pass,
+            virustotal_mode="real",
             llm_agent_pass=True,
+            llm_agent_mode="real",
         )
     return version
 
 
-def test_latest_requires_successful_build_and_scan() -> None:
-    assert _get_latest([_version(scanned=False)]) is None
+def test_latest_requires_successful_build_and_non_blocking_scan_results() -> None:
+    assert _get_latest([_version(scanned=False)]) is not None
     assert _get_latest([_version(scanned=True, build_status="failed")]) is None
+    assert _get_latest([_version(scanned=True, scan_pass=False)]) is None
     assert _get_latest([_version(scanned=True)]) is not None
 
 

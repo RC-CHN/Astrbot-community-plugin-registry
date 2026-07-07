@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import struct
 import tempfile
 import uuid
 import zipfile
@@ -17,14 +18,20 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import PluginVersion, SecurityScan
-from .runtime_config import runtime_llm_agent_config, runtime_scan_defaults, runtime_virustotal_config
+from ..models import PluginVersion, ReviewProviderResult, SecurityScan
+from .runtime_config import (
+    runtime_clamav_config,
+    runtime_llm_agent_config,
+    runtime_scan_defaults,
+    runtime_virustotal_config,
+)
 from .s3_service import download_file
 from .task_queue import enqueue_task
 
 VIRUSTOTAL_API_BASE_URL = "https://www.virustotal.com/api/v3"
-SCAN_PROVIDERS = {"virustotal", "llm_agent"}
-SCAN_PROVIDER_ORDER = ("virustotal", "llm_agent")
+SCAN_PROVIDER_ORDER = ("clamav", "virustotal", "llm_agent")
+SCAN_PROVIDERS = set(SCAN_PROVIDER_ORDER)
+LEGACY_PUBLIC_SCAN_PROVIDERS = ("virustotal", "llm_agent")
 LLM_RISK_FAIL_LEVELS = {"high", "critical"}
 LLM_RELEVANT_SUFFIXES = {
     ".py",
@@ -77,6 +84,114 @@ class ScanOutcome:
     virustotal_poll_attempts: int | None = None
 
 
+def scan_provider_results(version: PluginVersion) -> dict[str, dict[str, Any]]:
+    """Return provider scan results keyed by provider, with legacy fallback."""
+    provider_results = {
+        result.provider: _provider_result_payload(result)
+        for result in getattr(version, "provider_results", []) or []
+        if result.kind == "scan"
+    }
+    scan = version.scan
+    if scan:
+        legacy_results = {
+            "virustotal": {
+                "pass": scan.virustotal_pass,
+                "msg": scan.virustotal_msg,
+                "mode": scan.virustotal_mode,
+            },
+            "llm_agent": {
+                "pass": scan.llm_agent_pass,
+                "msg": scan.llm_agent_msg,
+                "mode": scan.llm_agent_mode,
+            },
+        }
+        for provider, payload in legacy_results.items():
+            provider_results.setdefault(provider, payload)
+    return provider_results
+
+
+def public_sec_scan(
+    version: PluginVersion,
+    *,
+    coerce_unknown_to_false: bool = False,
+) -> dict[str, dict[str, Any]]:
+    """Format public sec_scan with known legacy keys first, then any extra providers."""
+    results = scan_provider_results(version)
+    output: dict[str, dict[str, Any]] = {}
+    for provider in LEGACY_PUBLIC_SCAN_PROVIDERS:
+        if provider in results:
+            output[provider] = _scan_payload_for_public(
+                results[provider],
+                coerce_unknown_to_false=coerce_unknown_to_false,
+            )
+    for provider, payload in results.items():
+        if provider not in output and provider != "human":
+            output[provider] = _scan_payload_for_public(
+                payload,
+                coerce_unknown_to_false=coerce_unknown_to_false,
+            )
+    return output
+
+
+def version_scan_summary(version: PluginVersion) -> dict[str, Any] | None:
+    results = scan_provider_results(version)
+    if not results and not version.scan:
+        return None
+    output = public_sec_scan(version)
+    scanned_at = None
+    if version.scan and version.scan.scanned_at:
+        scanned_at = version.scan.scanned_at.isoformat()
+    provider_updated_at = [
+        result.updated_at
+        for result in getattr(version, "provider_results", []) or []
+        if result.kind == "scan" and result.updated_at is not None
+    ]
+    if provider_updated_at:
+        scanned_at = max(provider_updated_at).isoformat()
+    output["scanned_at"] = scanned_at
+    return output
+
+
+def scan_providers_passed(version: PluginVersion, providers: tuple[str, ...] | None = None) -> bool:
+    results = scan_provider_results(version)
+    selected_results = (
+        {provider: results.get(provider) for provider in providers}
+        if providers is not None
+        else results
+    )
+    for result in selected_results.values():
+        if not result:
+            continue
+        if result.get("mode") == "skipped":
+            continue
+        if result.get("mode") in {"pending", "error"}:
+            return False
+        if result.get("pass") is False:
+            return False
+        if result.get("pass") is None:
+            return False
+    return True
+
+
+def _provider_result_payload(result: ReviewProviderResult) -> dict[str, Any]:
+    return {
+        "pass": result.passed,
+        "msg": result.message,
+        "mode": result.mode,
+    }
+
+
+def _scan_payload_for_public(
+    payload: dict[str, Any],
+    *,
+    coerce_unknown_to_false: bool,
+) -> dict[str, Any]:
+    output = dict(payload)
+    if coerce_unknown_to_false:
+        output["pass"] = bool(output.get("pass"))
+    return output
+
+
 async def scan_version(
     db: AsyncSession,
     version_id: uuid.UUID,
@@ -99,19 +214,24 @@ async def scan_version(
         await db.commit()
 
     defaults = await runtime_scan_defaults(db)
+    clamav_config = await runtime_clamav_config(db) if "clamav" in selected else None
     vt_config = await runtime_virustotal_config(db) if "virustotal" in selected else None
     llm_config = await runtime_llm_agent_config(db) if "llm_agent" in selected else None
     outcomes = await _scan_selected_providers(
         version,
         selected,
         defaults,
+        clamav_config=clamav_config,
         vt_config=vt_config,
         llm_config=llm_config,
         local_path=local_path,
     )
     virustotal_poll_delay: float | None = None
     for provider, outcome in outcomes.items():
-        _set_provider_result(scan, provider, outcome.passed, outcome.message, outcome.mode)
+        provider_result = await _get_or_create_provider_result(db, version.id, provider)
+        if provider in LEGACY_PUBLIC_SCAN_PROVIDERS:
+            _set_provider_result(scan, provider, outcome.passed, outcome.message, outcome.mode)
+        _set_review_provider_result(provider_result, provider, outcome)
         if provider == "virustotal":
             _apply_virustotal_tracking(scan, outcome)
             if outcome.virustotal_analysis_id and outcome.virustotal_next_poll_at:
@@ -142,7 +262,10 @@ async def mark_scan_pending(
 ) -> SecurityScan:
     version, scan = await _get_or_create_scan(db, version_id)
     for provider in _normalize_providers(providers):
-        _set_provider_result(scan, provider, None, "Scan queued", "pending")
+        provider_result = await _get_or_create_provider_result(db, version.id, provider)
+        if provider in LEGACY_PUBLIC_SCAN_PROVIDERS:
+            _set_provider_result(scan, provider, None, "Scan queued", "pending")
+        _set_review_provider_result(provider_result, provider, ScanOutcome(None, "Scan queued", "pending"))
         if provider == "virustotal":
             _clear_virustotal_tracking(scan)
     scan.scanned_at = datetime.now(UTC)
@@ -169,6 +292,7 @@ async def _scan_selected_providers(
     selected: set[str],
     defaults: dict[str, Any],
     *,
+    clamav_config: dict[str, Any] | None,
     vt_config: dict[str, Any] | None,
     llm_config: dict[str, Any] | None,
     local_path: Path | None,
@@ -179,7 +303,18 @@ async def _scan_selected_providers(
     for provider in SCAN_PROVIDER_ORDER:
         if provider not in selected:
             continue
-        if provider == "virustotal":
+        if provider == "clamav":
+            if clamav_config and clamav_config.get("enabled"):
+                tasks[provider] = asyncio.create_task(
+                    _scan_clamav_for_version(version, clamav_config, local_path)
+                )
+            else:
+                outcomes[provider] = ScanOutcome(
+                    defaults["pass_when_unconfigured"],
+                    defaults["message"],
+                    "skipped",
+                )
+        elif provider == "virustotal":
             if vt_config and vt_config.get("api_key"):
                 tasks[provider] = asyncio.create_task(
                     _scan_virustotal_for_version(version, vt_config, local_path)
@@ -219,13 +354,21 @@ async def mark_scan_skipped(
     version, scan = await _get_or_create_scan(db, version_id)
     defaults = await runtime_scan_defaults(db)
     for provider in _normalize_providers(providers):
-        _set_provider_result(
-            scan,
-            provider,
+        provider_result = await _get_or_create_provider_result(db, version.id, provider)
+        outcome = ScanOutcome(
             defaults["pass_when_unconfigured"],
             "Manually skipped",
             "skipped",
         )
+        if provider in LEGACY_PUBLIC_SCAN_PROVIDERS:
+            _set_provider_result(
+                scan,
+                provider,
+                outcome.passed,
+                outcome.message,
+                outcome.mode,
+            )
+        _set_review_provider_result(provider_result, provider, outcome)
         if provider == "virustotal":
             _clear_virustotal_tracking(scan)
     scan.scanned_at = datetime.now(UTC)
@@ -258,6 +401,29 @@ async def _get_or_create_scan(
     return version, scan
 
 
+async def _get_or_create_provider_result(
+    db: AsyncSession,
+    version_id: uuid.UUID,
+    provider: str,
+    *,
+    kind: str = "scan",
+) -> ReviewProviderResult:
+    result = await db.execute(
+        select(ReviewProviderResult)
+        .where(ReviewProviderResult.version_id == version_id)
+        .where(ReviewProviderResult.provider == provider)
+    )
+    provider_result = result.scalar_one_or_none()
+    if provider_result is None:
+        provider_result = ReviewProviderResult(
+            version_id=version_id,
+            provider=provider,
+            kind=kind,
+        )
+        db.add(provider_result)
+    return provider_result
+
+
 def _normalize_providers(providers: list[str] | None) -> set[str]:
     if not providers:
         return set(SCAN_PROVIDERS)
@@ -288,6 +454,39 @@ def _set_provider_result(
     raise ValueError(f"Invalid scan provider: {provider}")
 
 
+def _set_review_provider_result(
+    result: ReviewProviderResult,
+    provider: str,
+    outcome: ScanOutcome,
+) -> None:
+    result.provider = provider
+    result.kind = "scan"
+    result.passed = outcome.passed
+    result.message = outcome.message
+    result.mode = outcome.mode
+    result.completed_at = datetime.now(UTC) if outcome.mode != "pending" else None
+
+    if provider == "virustotal":
+        result.external_id = outcome.virustotal_analysis_id
+        result.submitted_at = outcome.virustotal_submitted_at
+        result.deadline_at = outcome.virustotal_deadline_at
+        result.next_poll_at = outcome.virustotal_next_poll_at if outcome.mode == "pending" else None
+        if outcome.virustotal_poll_attempts is not None:
+            result.attempts = outcome.virustotal_poll_attempts
+        result.details_json = (
+            {"file_sha256": outcome.virustotal_file_sha256}
+            if outcome.virustotal_file_sha256
+            else result.details_json
+        )
+        return
+
+    result.external_id = None
+    result.submitted_at = None
+    result.deadline_at = None
+    result.next_poll_at = None
+    result.attempts = 0
+
+
 def _apply_virustotal_tracking(scan: SecurityScan, outcome: ScanOutcome) -> None:
     if outcome.virustotal_analysis_id:
         scan.virustotal_analysis_id = outcome.virustotal_analysis_id
@@ -313,6 +512,14 @@ def _clear_virustotal_tracking(scan: SecurityScan) -> None:
     scan.virustotal_deadline_at = None
     scan.virustotal_next_poll_at = None
     scan.virustotal_poll_attempts = 0
+
+
+def _provider_file_sha256(result: ReviewProviderResult) -> str | None:
+    details = result.details_json
+    if not isinstance(details, dict):
+        return None
+    value = details.get("file_sha256")
+    return str(value) if value else None
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -354,14 +561,23 @@ def _virustotal_timeout_outcome(
 
 async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> SecurityScan:
     version, scan = await _get_or_create_scan(db, version_id)
-    analysis_id = scan.virustotal_analysis_id
-    if not analysis_id or scan.virustotal_mode != "pending":
+    provider_result = await _get_or_create_provider_result(db, version.id, "virustotal")
+    analysis_id = provider_result.external_id or scan.virustotal_analysis_id
+    mode = provider_result.mode or scan.virustotal_mode
+    if not analysis_id or mode != "pending":
         return scan
 
     config = await runtime_virustotal_config(db)
     if not config.get("api_key"):
         defaults = await runtime_scan_defaults(db)
-        _set_provider_result(scan, "virustotal", defaults["pass_when_unconfigured"], defaults["message"], "skipped")
+        outcome = ScanOutcome(
+            defaults["pass_when_unconfigured"],
+            defaults["message"],
+            "skipped",
+            virustotal_analysis_id=analysis_id,
+        )
+        _set_provider_result(scan, "virustotal", outcome.passed, outcome.message, outcome.mode)
+        _set_review_provider_result(provider_result, "virustotal", outcome)
         _clear_virustotal_tracking(scan)
         scan.scanned_at = datetime.now(UTC)
         if version.s3_key and version.download_url:
@@ -373,14 +589,17 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
 
     now = datetime.now(UTC)
     max_wait_seconds = max(1, int(config["max_wait_seconds"]))
-    deadline = _aware(scan.virustotal_deadline_at) or now + timedelta(seconds=max_wait_seconds)
+    deadline = _aware(provider_result.deadline_at) or _aware(scan.virustotal_deadline_at)
+    deadline = deadline or now + timedelta(seconds=max_wait_seconds)
+    attempts_so_far = max(provider_result.attempts or 0, scan.virustotal_poll_attempts or 0)
     if now >= deadline:
         outcome = _virustotal_timeout_outcome(
             analysis_id=analysis_id,
-            attempts=scan.virustotal_poll_attempts,
+            attempts=attempts_so_far,
             max_wait_seconds=max_wait_seconds,
         )
         _set_provider_result(scan, "virustotal", outcome.passed, outcome.message, outcome.mode)
+        _set_review_provider_result(provider_result, "virustotal", outcome)
         _apply_virustotal_tracking(scan, outcome)
         scan.scanned_at = now
         if version.s3_key and version.download_url:
@@ -392,7 +611,7 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
 
     outcome = await _poll_virustotal_analysis(analysis_id, config)
     if outcome.mode == "pending":
-        attempts = scan.virustotal_poll_attempts + 1
+        attempts = attempts_so_far + 1
         max_attempts = max(1, int(config["max_poll_attempts"]))
         if attempts >= max_attempts:
             outcome = _virustotal_timeout_outcome(
@@ -410,14 +629,16 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
                 f"next_poll_at={next_poll_at.isoformat()}, deadline_at={deadline.isoformat()}",
                 "pending",
                 virustotal_analysis_id=analysis_id,
-                virustotal_file_sha256=scan.virustotal_file_sha256,
-                virustotal_submitted_at=_aware(scan.virustotal_submitted_at),
+                virustotal_file_sha256=_provider_file_sha256(provider_result) or scan.virustotal_file_sha256,
+                virustotal_submitted_at=_aware(provider_result.submitted_at)
+                or _aware(scan.virustotal_submitted_at),
                 virustotal_deadline_at=deadline,
                 virustotal_next_poll_at=next_poll_at,
                 virustotal_poll_attempts=attempts,
             )
 
     _set_provider_result(scan, "virustotal", outcome.passed, outcome.message, outcome.mode)
+    _set_review_provider_result(provider_result, "virustotal", outcome)
     _apply_virustotal_tracking(scan, outcome)
     scan.scanned_at = datetime.now(UTC)
     if version.s3_key and version.download_url:
@@ -463,6 +684,85 @@ async def _scan_virustotal_for_version(
         except Exception as exc:
             return ScanOutcome(False, f"VirusTotal scan failed: could not download artifact: {exc}", "error")
         return await _scan_virustotal(artifact_path, vt_config)
+
+
+async def _scan_clamav_for_version(
+    version: PluginVersion,
+    config: dict[str, Any],
+    local_path: Path | None,
+) -> ScanOutcome:
+    if local_path is not None:
+        return await _scan_clamav(local_path, config)
+
+    if not version.s3_key:
+        return ScanOutcome(False, "ClamAV scan failed: version artifact is missing", "error")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        artifact_path = Path(tmp) / f"{version.id}.zip"
+        try:
+            await download_file(version.s3_key, artifact_path)
+        except Exception as exc:
+            return ScanOutcome(False, f"ClamAV scan failed: could not download artifact: {exc}", "error")
+        return await _scan_clamav(artifact_path, config)
+
+
+async def _scan_clamav(local_path: Path, config: dict[str, Any]) -> ScanOutcome:
+    file_size = local_path.stat().st_size
+    max_stream_bytes = max(1, int(config["max_stream_bytes"]))
+    if file_size > max_stream_bytes:
+        return ScanOutcome(
+            False,
+            f"ClamAV scan failed: file exceeds stream limit ({file_size} > {max_stream_bytes} bytes)",
+            "error",
+        )
+
+    timeout = max(1, int(config["timeout_seconds"]))
+    chunk_size = max(1, int(config["stream_chunk_bytes"]))
+    host = str(config["host"])
+    port = int(config["port"])
+
+    try:
+        reply = await asyncio.wait_for(
+            _clamav_instream(host, port, local_path, chunk_size),
+            timeout=timeout,
+        )
+    except TimeoutError:
+        return ScanOutcome(False, f"ClamAV scan failed: timed out after {timeout} seconds", "error")
+    except OSError as exc:
+        return ScanOutcome(False, f"ClamAV scan failed: {exc}", "error")
+
+    return _format_clamav_reply(reply)
+
+
+async def _clamav_instream(host: str, port: int, local_path: Path, chunk_size: int) -> str:
+    reader, writer = await asyncio.open_connection(host, port)
+    try:
+        writer.write(b"zINSTREAM\0")
+        with open(local_path, "rb") as artifact:
+            while chunk := artifact.read(chunk_size):
+                writer.write(struct.pack(">I", len(chunk)))
+                writer.write(chunk)
+                await writer.drain()
+        writer.write(struct.pack(">I", 0))
+        await writer.drain()
+        data = await reader.read(4096)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+    return data.decode("utf-8", errors="replace").replace("\x00", "").strip()
+
+
+def _format_clamav_reply(reply: str) -> ScanOutcome:
+    normalized = reply.strip()
+    if not normalized:
+        return ScanOutcome(False, "ClamAV scan failed: empty response", "error")
+    if normalized.endswith(" OK"):
+        return ScanOutcome(True, f"ClamAV passed: {normalized}", "real")
+    if " FOUND" in normalized:
+        return ScanOutcome(False, f"ClamAV detected malware: {normalized}", "real")
+    if " ERROR" in normalized or normalized.startswith("ERROR"):
+        return ScanOutcome(False, f"ClamAV scan failed: {normalized}", "error")
+    return ScanOutcome(False, f"ClamAV scan failed: unexpected response: {normalized}", "error")
 
 
 async def _scan_llm_for_version(
