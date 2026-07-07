@@ -100,12 +100,12 @@ export function usePluginMutations() {
       onSuccess: invalidatePlugins,
     }),
     runScanProvider: useMutation({
-      mutationFn: ({ pluginId, versionId, provider }: { pluginId: string; versionId: string; provider: 'virustotal' | 'llm_agent' }) =>
+      mutationFn: ({ pluginId, versionId, provider }: { pluginId: string; versionId: string; provider: string }) =>
         runVersionScanProvider(pluginId, versionId, provider),
       onSuccess: invalidatePlugins,
     }),
     skipScanProvider: useMutation({
-      mutationFn: ({ pluginId, versionId, provider }: { pluginId: string; versionId: string; provider: 'virustotal' | 'llm_agent' }) =>
+      mutationFn: ({ pluginId, versionId, provider }: { pluginId: string; versionId: string; provider: string }) =>
         skipVersionScanProvider(pluginId, versionId, provider),
       onSuccess: invalidatePlugins,
     }),

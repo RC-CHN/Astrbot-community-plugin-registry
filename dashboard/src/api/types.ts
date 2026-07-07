@@ -13,6 +13,13 @@ export type ReviewStatus = 'pending' | 'approved' | 'skipped' | 'rejected'
 export type VersionStatus = 'draft' | 'active' | 'deprecated' | 'deleted'
 export type BuildStatus = 'pending' | 'building' | 'success' | 'failed' | 'scanning'
 export type ScanMode = 'pending' | 'real' | 'skipped' | 'error'
+export type ScanProviderName = string
+
+export type ScanProviderResult = {
+  pass: boolean | null
+  msg: string | null
+  mode: ScanMode
+}
 
 export type PluginSummary = {
   id: string
@@ -27,9 +34,7 @@ export type PluginSummary = {
   updated_at: string | null
 }
 
-export type ScanSummary = {
-  virustotal: { pass: boolean | null; msg: string | null; mode: ScanMode }
-  llm_agent: { pass: boolean | null; msg: string | null; mode: ScanMode }
+export type ScanSummary = Record<ScanProviderName, ScanProviderResult | string | null | undefined> & {
   scanned_at?: string | null
 }
 

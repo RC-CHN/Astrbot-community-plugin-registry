@@ -187,14 +187,14 @@ async function skipReviewAndPublish() {
   )
 }
 
-async function runScanProvider(version: VersionSummary, provider: 'virustotal' | 'llm_agent') {
+async function runScanProvider(version: VersionSummary, provider: string) {
   if (!plugin.value) return
   await runAction(() =>
     mutations.runScanProvider.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id, provider }),
   )
 }
 
-async function skipScanProvider(version: VersionSummary, provider: 'virustotal' | 'llm_agent') {
+async function skipScanProvider(version: VersionSummary, provider: string) {
   if (!plugin.value) return
   await runAction(() =>
     mutations.skipScanProvider.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id, provider }),

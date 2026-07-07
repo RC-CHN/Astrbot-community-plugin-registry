@@ -1,4 +1,5 @@
 import type { PluginDetail, VersionSummary } from '@/api/types'
+import { scanHasBlockingResult, scanHasPending } from '@/utils/scans'
 
 export function getVersionBlockers(
   plugin: PluginDetail,
@@ -17,11 +18,9 @@ export function getVersionBlockers(
   } else if (version.build_status !== 'success') {
     blockers.push('构建未成功')
   }
-  if (!version.scan) {
-    blockers.push('未完成扫描')
-  } else if (version.scan.virustotal.mode === 'pending' || version.scan.llm_agent.mode === 'pending') {
+  if (scanHasPending(version.scan)) {
     blockers.push('扫描仍在进行')
-  } else if (!version.scan.virustotal.pass || !version.scan.llm_agent.pass) {
+  } else if (scanHasBlockingResult(version.scan)) {
     blockers.push('扫描未通过')
   }
   return [...new Set(blockers)]
@@ -31,7 +30,10 @@ export function canActivateVersion(version: VersionSummary): { ok: boolean; reas
   if (version.build_status !== 'success') {
     return { ok: false, reason: '构建未成功，不能标记为可发布' }
   }
-  if (!version.scan || !version.scan.virustotal.pass || !version.scan.llm_agent.pass) {
+  if (scanHasPending(version.scan)) {
+    return { ok: false, reason: '扫描仍在进行，不能标记为可发布' }
+  }
+  if (scanHasBlockingResult(version.scan)) {
     return { ok: false, reason: '扫描未通过，不能标记为可发布' }
   }
   return { ok: true, reason: '' }

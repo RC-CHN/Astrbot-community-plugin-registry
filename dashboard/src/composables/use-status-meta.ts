@@ -6,6 +6,7 @@ import {
   versionStatusMeta,
   type StatusMeta,
 } from '@/constants/status'
+import { scanProviderEntries } from '@/utils/scans'
 
 export function getPluginStatusMeta(status: PluginStatus): StatusMeta {
   return pluginStatusMeta[status]
@@ -20,12 +21,16 @@ export function getBuildStatusMeta(status: BuildStatus): StatusMeta {
 }
 
 export function getScanAggregateMeta(scan: ScanSummary | null): StatusMeta {
-  if (!scan) return scanStatusMeta(null)
-  const modes = [scan.virustotal.mode, scan.llm_agent.mode]
+  const entries = scanProviderEntries(scan)
+  if (!entries.length) return scanStatusMeta(null)
+  const modes = entries.map(({ result }) => result.mode)
   if (modes.some((mode) => mode === 'pending')) return { label: '扫描中', type: 'info' }
-  const values = [scan.virustotal.pass, scan.llm_agent.pass]
-  if (values.some((value) => value === false)) return scanStatusMeta(false)
   if (modes.every((mode) => mode === 'skipped')) return { label: '已略过', type: 'warning' }
+  const activeEntries = entries.filter(({ result }) => result.mode !== 'skipped')
+  const values = activeEntries.map(({ result }) => result.pass)
+  if (activeEntries.some(({ result }) => result.mode === 'error') || values.some((value) => value === false)) {
+    return scanStatusMeta(false)
+  }
   if (modes.some((mode) => mode === 'skipped')) return { label: '部分略过', type: 'warning' }
   if (values.every(Boolean)) return scanStatusMeta(true)
   return scanStatusMeta(null)

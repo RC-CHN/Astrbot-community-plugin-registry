@@ -92,13 +92,13 @@ export function triggerVersionScan(pluginId: string, versionId: string) {
   })
 }
 
-export function runVersionScanProvider(pluginId: string, versionId: string, provider: 'virustotal' | 'llm_agent') {
+export function runVersionScanProvider(pluginId: string, versionId: string, provider: string) {
   return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/versions/${versionId}/scans/${provider}/run`, {
     method: 'POST',
   })
 }
 
-export function skipVersionScanProvider(pluginId: string, versionId: string, provider: 'virustotal' | 'llm_agent') {
+export function skipVersionScanProvider(pluginId: string, versionId: string, provider: string) {
   return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/versions/${versionId}/scans/${provider}/skip`, {
     method: 'POST',
   })
