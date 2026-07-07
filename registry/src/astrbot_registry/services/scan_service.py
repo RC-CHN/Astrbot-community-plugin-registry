@@ -9,7 +9,7 @@ import tempfile
 import uuid
 import zipfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import PluginVersion, SecurityScan
 from .runtime_config import runtime_llm_agent_config, runtime_scan_defaults, runtime_virustotal_config
 from .s3_service import download_file
+from .task_queue import enqueue_task
 
 VIRUSTOTAL_API_BASE_URL = "https://www.virustotal.com/api/v3"
 SCAN_PROVIDERS = {"virustotal", "llm_agent"}
@@ -68,6 +69,12 @@ class ScanOutcome:
     passed: bool | None
     message: str
     mode: str
+    virustotal_analysis_id: str | None = None
+    virustotal_file_sha256: str | None = None
+    virustotal_submitted_at: datetime | None = None
+    virustotal_deadline_at: datetime | None = None
+    virustotal_next_poll_at: datetime | None = None
+    virustotal_poll_attempts: int | None = None
 
 
 async def scan_version(
@@ -79,9 +86,10 @@ async def scan_version(
 ) -> SecurityScan:
     """Run security scans on a plugin version.
 
-    If VirusTotal is configured, the packaged zip is uploaded directly and the
-    analysis is polled until completion. Without a configured scanner, the
-    development default is used so local workflows can still progress.
+    If VirusTotal is configured, the packaged zip is uploaded directly and a
+    follow-up polling task is queued until the remote analysis completes.
+    Without a configured scanner, the development default is used so local
+    workflows can still progress.
     """
     selected = _normalize_providers(providers)
     version, scan = await _get_or_create_scan(db, version_id)
@@ -101,13 +109,25 @@ async def scan_version(
         llm_config=llm_config,
         local_path=local_path,
     )
+    virustotal_poll_delay: float | None = None
     for provider, outcome in outcomes.items():
         _set_provider_result(scan, provider, outcome.passed, outcome.message, outcome.mode)
+        if provider == "virustotal":
+            _apply_virustotal_tracking(scan, outcome)
+            if outcome.virustotal_analysis_id and outcome.virustotal_next_poll_at:
+                virustotal_poll_delay = _seconds_until(outcome.virustotal_next_poll_at)
     scan.scanned_at = datetime.now(UTC)
     if version.s3_key and version.download_url:
-        version.build_status = "success"
+        version.build_status = "scanning" if any(outcome.mode == "pending" for outcome in outcomes.values()) else "success"
     await db.commit()
     await db.refresh(scan)
+    if virustotal_poll_delay is not None:
+        await enqueue_task(
+            "virustotal_poll",
+            {"version_id": str(version.id)},
+            db,
+            delay_seconds=virustotal_poll_delay,
+        )
     from ..services.registry_service import refresh_cache
 
     await refresh_cache(db)
@@ -123,6 +143,8 @@ async def mark_scan_pending(
     version, scan = await _get_or_create_scan(db, version_id)
     for provider in _normalize_providers(providers):
         _set_provider_result(scan, provider, None, "Scan queued", "pending")
+        if provider == "virustotal":
+            _clear_virustotal_tracking(scan)
     scan.scanned_at = datetime.now(UTC)
     if _can_mark_build_scanning(version):
         version.build_status = "scanning"
@@ -204,6 +226,8 @@ async def mark_scan_skipped(
             "Manually skipped",
             "skipped",
         )
+        if provider == "virustotal":
+            _clear_virustotal_tracking(scan)
     scan.scanned_at = datetime.now(UTC)
     if version.s3_key and version.download_url:
         version.build_status = "success"
@@ -262,6 +286,159 @@ def _set_provider_result(
         scan.llm_agent_mode = mode
         return
     raise ValueError(f"Invalid scan provider: {provider}")
+
+
+def _apply_virustotal_tracking(scan: SecurityScan, outcome: ScanOutcome) -> None:
+    if outcome.virustotal_analysis_id:
+        scan.virustotal_analysis_id = outcome.virustotal_analysis_id
+    if outcome.virustotal_file_sha256:
+        scan.virustotal_file_sha256 = outcome.virustotal_file_sha256
+    if outcome.virustotal_submitted_at:
+        scan.virustotal_submitted_at = outcome.virustotal_submitted_at
+    if outcome.virustotal_deadline_at:
+        scan.virustotal_deadline_at = outcome.virustotal_deadline_at
+    if outcome.virustotal_poll_attempts is not None:
+        scan.virustotal_poll_attempts = outcome.virustotal_poll_attempts
+
+    if outcome.mode == "pending":
+        scan.virustotal_next_poll_at = outcome.virustotal_next_poll_at
+    else:
+        scan.virustotal_next_poll_at = None
+
+
+def _clear_virustotal_tracking(scan: SecurityScan) -> None:
+    scan.virustotal_analysis_id = None
+    scan.virustotal_file_sha256 = None
+    scan.virustotal_submitted_at = None
+    scan.virustotal_deadline_at = None
+    scan.virustotal_next_poll_at = None
+    scan.virustotal_poll_attempts = 0
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+def _seconds_until(value: datetime) -> float:
+    aware_value = _aware(value)
+    if aware_value is None:
+        return 0.0
+    return max(0.0, (aware_value - datetime.now(UTC)).total_seconds())
+
+
+def _next_virustotal_delay(config: dict[str, Any], attempts: int) -> int:
+    base = max(1, int(config["poll_interval_seconds"]))
+    max_interval = max(base, int(config["max_poll_interval_seconds"]))
+    return min(base * (2 ** max(attempts, 0)), max_interval)
+
+
+def _virustotal_timeout_outcome(
+    *,
+    analysis_id: str,
+    attempts: int,
+    max_wait_seconds: int,
+) -> ScanOutcome:
+    return ScanOutcome(
+        False,
+        "VirusTotal scan timed out: analysis did not complete "
+        f"within {max_wait_seconds} seconds after {attempts} polls, analysis_id={analysis_id}",
+        "error",
+        virustotal_analysis_id=analysis_id,
+        virustotal_poll_attempts=attempts,
+    )
+
+
+async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> SecurityScan:
+    version, scan = await _get_or_create_scan(db, version_id)
+    analysis_id = scan.virustotal_analysis_id
+    if not analysis_id or scan.virustotal_mode != "pending":
+        return scan
+
+    config = await runtime_virustotal_config(db)
+    if not config.get("api_key"):
+        defaults = await runtime_scan_defaults(db)
+        _set_provider_result(scan, "virustotal", defaults["pass_when_unconfigured"], defaults["message"], "skipped")
+        _clear_virustotal_tracking(scan)
+        scan.scanned_at = datetime.now(UTC)
+        if version.s3_key and version.download_url:
+            version.build_status = "success"
+        await db.commit()
+        await db.refresh(scan)
+        await _refresh_registry_cache(db)
+        return scan
+
+    now = datetime.now(UTC)
+    max_wait_seconds = max(1, int(config["max_wait_seconds"]))
+    deadline = _aware(scan.virustotal_deadline_at) or now + timedelta(seconds=max_wait_seconds)
+    if now >= deadline:
+        outcome = _virustotal_timeout_outcome(
+            analysis_id=analysis_id,
+            attempts=scan.virustotal_poll_attempts,
+            max_wait_seconds=max_wait_seconds,
+        )
+        _set_provider_result(scan, "virustotal", outcome.passed, outcome.message, outcome.mode)
+        _apply_virustotal_tracking(scan, outcome)
+        scan.scanned_at = now
+        if version.s3_key and version.download_url:
+            version.build_status = "success"
+        await db.commit()
+        await db.refresh(scan)
+        await _refresh_registry_cache(db)
+        return scan
+
+    outcome = await _poll_virustotal_analysis(analysis_id, config)
+    if outcome.mode == "pending":
+        attempts = scan.virustotal_poll_attempts + 1
+        max_attempts = max(1, int(config["max_poll_attempts"]))
+        if attempts >= max_attempts:
+            outcome = _virustotal_timeout_outcome(
+                analysis_id=analysis_id,
+                attempts=attempts,
+                max_wait_seconds=max_wait_seconds,
+            )
+        else:
+            delay = _next_virustotal_delay(config, attempts)
+            next_poll_at = min(now + timedelta(seconds=delay), deadline)
+            outcome = ScanOutcome(
+                None,
+                "VirusTotal analysis pending: "
+                f"analysis_id={analysis_id}, attempt={attempts}, "
+                f"next_poll_at={next_poll_at.isoformat()}, deadline_at={deadline.isoformat()}",
+                "pending",
+                virustotal_analysis_id=analysis_id,
+                virustotal_file_sha256=scan.virustotal_file_sha256,
+                virustotal_submitted_at=_aware(scan.virustotal_submitted_at),
+                virustotal_deadline_at=deadline,
+                virustotal_next_poll_at=next_poll_at,
+                virustotal_poll_attempts=attempts,
+            )
+
+    _set_provider_result(scan, "virustotal", outcome.passed, outcome.message, outcome.mode)
+    _apply_virustotal_tracking(scan, outcome)
+    scan.scanned_at = datetime.now(UTC)
+    if version.s3_key and version.download_url:
+        version.build_status = "scanning" if outcome.mode == "pending" else "success"
+    await db.commit()
+    await db.refresh(scan)
+    if outcome.mode == "pending" and outcome.virustotal_next_poll_at:
+        await enqueue_task(
+            "virustotal_poll",
+            {"version_id": str(version.id)},
+            db,
+            delay_seconds=_seconds_until(outcome.virustotal_next_poll_at),
+        )
+    await _refresh_registry_cache(db)
+    return scan
+
+
+async def _refresh_registry_cache(db: AsyncSession) -> None:
+    from ..services.registry_service import refresh_cache
+
+    await refresh_cache(db)
 
 
 def _llm_configured(config: dict[str, Any]) -> bool:
@@ -528,8 +705,7 @@ async def _scan_virustotal(local_path: Path, vt_config: dict[str, Any]) -> ScanO
 
     headers = {"x-apikey": str(vt_config["api_key"])}
     timeout = max(1, int(vt_config["timeout_seconds"]))
-    poll_interval = max(1, int(vt_config["poll_interval_seconds"]))
-    max_poll_attempts = max(1, int(vt_config["max_poll_attempts"]))
+    max_wait_seconds = max(1, int(vt_config["max_wait_seconds"]))
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -548,17 +724,25 @@ async def _scan_virustotal(local_path: Path, vt_config: dict[str, Any]) -> ScanO
                     return _format_virustotal_result(existing_stats, f"file:{file_sha256}")
                 raise
 
-            for _ in range(max_poll_attempts):
-                response = await client.get(
-                    f"{VIRUSTOTAL_API_BASE_URL}/analyses/{analysis_id}",
-                    headers=headers,
-                )
-                response.raise_for_status()
-                data = response.json().get("data") or {}
-                attributes = data.get("attributes") or {}
-                if attributes.get("status") == "completed":
-                    return _format_virustotal_result(attributes.get("stats") or {}, analysis_id)
-                await asyncio.sleep(poll_interval)
+            now = datetime.now(UTC)
+            deadline = now + timedelta(seconds=max_wait_seconds)
+            next_poll_at = min(
+                now + timedelta(seconds=_next_virustotal_delay(vt_config, 0)),
+                deadline,
+            )
+            return ScanOutcome(
+                None,
+                "VirusTotal analysis pending: "
+                f"analysis_id={analysis_id}, next_poll_at={next_poll_at.isoformat()}, "
+                f"deadline_at={deadline.isoformat()}",
+                "pending",
+                virustotal_analysis_id=analysis_id,
+                virustotal_file_sha256=file_sha256,
+                virustotal_submitted_at=now,
+                virustotal_deadline_at=deadline,
+                virustotal_next_poll_at=next_poll_at,
+                virustotal_poll_attempts=0,
+            )
     except httpx.HTTPStatusError as exc:
         return ScanOutcome(False, f"VirusTotal scan failed: HTTP {exc.response.status_code}", "error")
     except httpx.HTTPError as exc:
@@ -566,11 +750,34 @@ async def _scan_virustotal(local_path: Path, vt_config: dict[str, Any]) -> ScanO
     except (KeyError, TypeError, ValueError) as exc:
         return ScanOutcome(False, f"VirusTotal scan failed: invalid response: {exc}", "error")
 
-    return ScanOutcome(
-        False,
-        f"VirusTotal scan timed out: analysis did not complete after {max_poll_attempts} polls",
-        "error",
-    )
+
+async def _poll_virustotal_analysis(analysis_id: str, vt_config: dict[str, Any]) -> ScanOutcome:
+    headers = {"x-apikey": str(vt_config["api_key"])}
+    timeout = max(1, int(vt_config["timeout_seconds"]))
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(
+                f"{VIRUSTOTAL_API_BASE_URL}/analyses/{analysis_id}",
+                headers=headers,
+            )
+            response.raise_for_status()
+            data = response.json().get("data") or {}
+            attributes = data.get("attributes") or {}
+            status = str(attributes.get("status") or "unknown")
+            if status == "completed":
+                return _format_virustotal_result(attributes.get("stats") or {}, analysis_id)
+            return ScanOutcome(
+                None,
+                f"VirusTotal analysis pending: status={status}, analysis_id={analysis_id}",
+                "pending",
+                virustotal_analysis_id=analysis_id,
+            )
+    except httpx.HTTPStatusError as exc:
+        return ScanOutcome(False, f"VirusTotal scan failed: HTTP {exc.response.status_code}", "error")
+    except httpx.HTTPError as exc:
+        return ScanOutcome(False, f"VirusTotal scan failed: {exc}", "error")
+    except (KeyError, TypeError, ValueError) as exc:
+        return ScanOutcome(False, f"VirusTotal scan failed: invalid response: {exc}", "error")
 
 
 def _sha256_file(path: Path) -> str:
@@ -628,4 +835,4 @@ def _format_virustotal_result(stats: dict[str, Any], analysis_id: str) -> ScanOu
         f"VirusTotal {status}: malicious={malicious}, suspicious={suspicious}, "
         f"harmless={harmless}, undetected={undetected}, analysis_id={analysis_id}"
     )
-    return ScanOutcome(passed, message, "real")
+    return ScanOutcome(passed, message, "real", virustotal_analysis_id=analysis_id)

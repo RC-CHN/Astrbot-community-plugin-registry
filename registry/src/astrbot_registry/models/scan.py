@@ -3,7 +3,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -42,6 +42,17 @@ class SecurityScan(Base):
         String(32),
         default="pending",
         server_default=text("'pending'"),
+        nullable=False,
+    )
+    virustotal_analysis_id: Mapped[str | None] = mapped_column(Text)
+    virustotal_file_sha256: Mapped[str | None] = mapped_column(String(64))
+    virustotal_submitted_at: Mapped[datetime | None] = mapped_column(pg.TIMESTAMP(timezone=True))
+    virustotal_deadline_at: Mapped[datetime | None] = mapped_column(pg.TIMESTAMP(timezone=True))
+    virustotal_next_poll_at: Mapped[datetime | None] = mapped_column(pg.TIMESTAMP(timezone=True))
+    virustotal_poll_attempts: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default=text("0"),
         nullable=False,
     )
     llm_agent_pass: Mapped[bool | None] = mapped_column(Boolean)

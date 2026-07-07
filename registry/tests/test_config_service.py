@@ -1,4 +1,4 @@
-from astrbot_registry.services.config_service import build_config_response
+from astrbot_registry.services.config_service import EFFECTIVE_CONFIG_DEFAULTS, build_config_response
 
 
 def test_config_response_includes_effective_values() -> None:
@@ -11,10 +11,15 @@ def test_config_response_includes_effective_values() -> None:
 def test_config_response_includes_virustotal_runtime_defaults() -> None:
     response = build_config_response({})
 
-    assert response["effective_values"]["VIRUSTOTAL_TIMEOUT_SECONDS"] == "120"
-    assert response["effective_values"]["VIRUSTOTAL_POLL_INTERVAL_SECONDS"] == "5"
-    assert response["effective_values"]["VIRUSTOTAL_MAX_POLL_ATTEMPTS"] == "24"
-    assert response["effective_values"]["VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES"] == "33554432"
+    for key in [
+        "VIRUSTOTAL_TIMEOUT_SECONDS",
+        "VIRUSTOTAL_POLL_INTERVAL_SECONDS",
+        "VIRUSTOTAL_MAX_POLL_INTERVAL_SECONDS",
+        "VIRUSTOTAL_MAX_POLL_ATTEMPTS",
+        "VIRUSTOTAL_MAX_WAIT_SECONDS",
+        "VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES",
+    ]:
+        assert response["effective_values"][key] == str(EFFECTIVE_CONFIG_DEFAULTS[key])
 
 
 def test_config_response_includes_llm_runtime_defaults() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import signal
 import uuid
 
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -13,11 +14,25 @@ from .cache import get_redis
 from .database import async_session
 from .services.build_service import build_from_repo
 from .services.plugin_service import get_plugin
-from .services.scan_service import scan_version
+from .services.scan_service import poll_virustotal_analysis, scan_version
 from .services.submit_service import submit_repo
-from .services.task_queue import QUEUE_KEY, requeue_task
+from .services.task_queue import QUEUE_KEY, promote_due_tasks, requeue_task
 
 logger = logging.getLogger(__name__)
+
+
+def _install_shutdown_handlers(stop_event: asyncio.Event) -> None:
+    loop = asyncio.get_running_loop()
+
+    def request_stop() -> None:
+        logger.info("Worker shutdown requested; finishing current task before exit")
+        stop_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, request_stop)
+        except NotImplementedError:
+            signal.signal(sig, lambda _signum, _frame: loop.call_soon_threadsafe(request_stop))
 
 
 async def pop_task(redis_client) -> dict | None:
@@ -53,6 +68,8 @@ async def handle_task(task: dict) -> None:
             )
         elif task_type == "scan":
             await scan_version(db, uuid.UUID(payload["version_id"]), providers=payload.get("providers"))
+        elif task_type == "virustotal_poll":
+            await poll_virustotal_analysis(db, uuid.UUID(payload["version_id"]))
         elif task_type == "submit":
             await submit_repo(
                 db,
@@ -70,10 +87,13 @@ async def run_worker() -> None:
     if redis is None:
         raise RuntimeError("Redis is required to run the worker")
 
+    stop_event = asyncio.Event()
+    _install_shutdown_handlers(stop_event)
     logger.info("Registry worker started")
-    while True:
+    while not stop_event.is_set():
         task = None
         try:
+            await promote_due_tasks(redis)
             task = await pop_task(redis)
             if task is None:
                 continue
@@ -85,6 +105,7 @@ async def run_worker() -> None:
                     requeued = await requeue_task(task, exc, db=db)
                 if not requeued:
                     logger.error("Task moved to dead-letter queue: %s", task.get("id"))
+    logger.info("Registry worker drained and stopped")
 
 
 def main() -> None:

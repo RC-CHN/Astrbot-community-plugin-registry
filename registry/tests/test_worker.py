@@ -2,7 +2,7 @@ import pytest
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from astrbot_registry.services import task_queue
-from astrbot_registry.services.task_queue import create_task_envelope, requeue_task
+from astrbot_registry.services.task_queue import create_task_envelope, promote_due_tasks, requeue_task
 from astrbot_registry.worker import pop_task
 
 
@@ -11,6 +11,7 @@ class FakeRedis:
         self.result = result
         self.error = error
         self.items = []
+        self.delayed = {}
 
     async def blpop(self, key: str, timeout: int):
         if self.error is not None:
@@ -19,6 +20,27 @@ class FakeRedis:
 
     async def rpush(self, key: str, value: str):
         self.items.append((key, value))
+
+    async def zadd(self, key: str, mapping: dict[str, float]):
+        self.delayed.setdefault(key, {}).update(mapping)
+
+    async def zrangebyscore(self, key: str, min, max, start: int = 0, num: int | None = None):
+        values = [
+            value
+            for value, score in self.delayed.get(key, {}).items()
+            if float(min) <= score <= float(max)
+        ]
+        values.sort()
+        if num is None:
+            return values[start:]
+        return values[start : start + num]
+
+    async def zrem(self, key: str, value: str):
+        values = self.delayed.get(key, {})
+        if value not in values:
+            return 0
+        del values[value]
+        return 1
 
 
 @pytest.mark.asyncio
@@ -64,3 +86,35 @@ async def test_requeue_task_moves_exhausted_task_to_dead_letter(monkeypatch) -> 
     assert requeued is False
     assert redis.items[0][0] == task_queue.DEAD_LETTER_QUEUE_KEY
     assert '"last_error":"boom"' in redis.items[0][1]
+
+
+@pytest.mark.asyncio
+async def test_requeue_task_uses_delayed_queue_for_retry_delay(monkeypatch) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis():
+        return redis
+
+    monkeypatch.setattr(task_queue, "get_redis", fake_get_redis)
+    monkeypatch.setattr(task_queue.settings, "task_retry_delay_seconds", 30)
+    task = create_task_envelope("scan", {}, task_id="task-1", attempts=0, max_attempts=3)
+
+    requeued = await requeue_task(task, RuntimeError("boom"))
+
+    assert requeued is True
+    assert redis.items == []
+    assert len(redis.delayed[task_queue.DELAYED_QUEUE_KEY]) == 1
+
+
+@pytest.mark.asyncio
+async def test_promote_due_tasks_moves_delayed_items(monkeypatch) -> None:
+    redis = FakeRedis()
+    task = create_task_envelope("virustotal_poll", {"version_id": "v1"}, task_id="task-1")
+    await task_queue.push_task(redis, task, delay_seconds=30)
+    monkeypatch.setattr(task_queue.time, "time", lambda: 10**12)
+
+    promoted = await promote_due_tasks(redis)
+
+    assert promoted == 1
+    assert redis.items[0][0] == task_queue.QUEUE_KEY
+    assert '"type":"virustotal_poll"' in redis.items[0][1]

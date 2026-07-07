@@ -224,11 +224,19 @@ const editableItems: ConfigItem[] = [
   },
   {
     key: 'VIRUSTOTAL_POLL_INTERVAL_SECONDS',
-    label: 'VirusTotal 轮询间隔',
+    label: 'VirusTotal 初始轮询间隔',
     group: 'scan',
     input: 'number',
     scope: '扫描时生效',
-    description: '分析未完成时再次查询的等待时间，单位秒。',
+    description: '分析未完成时第一次延迟查询的等待时间，后续会指数退避，单位秒。',
+  },
+  {
+    key: 'VIRUSTOTAL_MAX_POLL_INTERVAL_SECONDS',
+    label: 'VirusTotal 最大轮询间隔',
+    group: 'scan',
+    input: 'number',
+    scope: '扫描时生效',
+    description: '指数退避后的最大单次等待时间，默认可退避到 320 秒。',
   },
   {
     key: 'VIRUSTOTAL_MAX_POLL_ATTEMPTS',
@@ -236,7 +244,15 @@ const editableItems: ConfigItem[] = [
     group: 'scan',
     input: 'number',
     scope: '扫描时生效',
-    description: '超过次数仍未完成时记录为扫描超时。',
+    description: '超过次数或最大等待时长仍未完成时记录为扫描超时。',
+  },
+  {
+    key: 'VIRUSTOTAL_MAX_WAIT_SECONDS',
+    label: 'VirusTotal 最大等待时长',
+    group: 'scan',
+    input: 'number',
+    scope: '扫描时生效',
+    description: '从提交分析开始到放弃等待的最长时长，单位秒。',
   },
   {
     key: 'VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES',

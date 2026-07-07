@@ -128,10 +128,22 @@ async def runtime_virustotal_config(db: AsyncSession) -> dict[str, Any]:
             settings.virustotal_poll_interval_seconds,
             int,
         ),
+        "max_poll_interval_seconds": await get_runtime_value(
+            db,
+            "VIRUSTOTAL_MAX_POLL_INTERVAL_SECONDS",
+            settings.virustotal_max_poll_interval_seconds,
+            int,
+        ),
         "max_poll_attempts": await get_runtime_value(
             db,
             "VIRUSTOTAL_MAX_POLL_ATTEMPTS",
             settings.virustotal_max_poll_attempts,
+            int,
+        ),
+        "max_wait_seconds": await get_runtime_value(
+            db,
+            "VIRUSTOTAL_MAX_WAIT_SECONDS",
+            settings.virustotal_max_wait_seconds,
             int,
         ),
         "max_direct_upload_bytes": await get_runtime_value(

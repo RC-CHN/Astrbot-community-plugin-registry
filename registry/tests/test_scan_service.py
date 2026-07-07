@@ -5,6 +5,7 @@ from astrbot_registry.services.scan_service import (
     _build_llm_context,
     _can_mark_build_scanning,
     _format_virustotal_result,
+    _poll_virustotal_analysis,
     _parse_llm_response,
     _scan_llm,
     _scan_selected_providers,
@@ -133,7 +134,9 @@ async def test_scan_virustotal_rejects_files_over_direct_upload_limit(tmp_path) 
             "api_key": "test-key",
             "timeout_seconds": 1,
             "poll_interval_seconds": 1,
+            "max_poll_interval_seconds": 2,
             "max_poll_attempts": 1,
+            "max_wait_seconds": 30,
             "max_direct_upload_bytes": 5,
         },
     )
@@ -192,7 +195,9 @@ async def test_scan_virustotal_reuses_existing_file_report(tmp_path, monkeypatch
             "api_key": "test-key",
             "timeout_seconds": 1,
             "poll_interval_seconds": 1,
+            "max_poll_interval_seconds": 2,
             "max_poll_attempts": 1,
+            "max_wait_seconds": 30,
             "max_direct_upload_bytes": 1024,
         },
     )
@@ -201,6 +206,104 @@ async def test_scan_virustotal_reuses_existing_file_report(tmp_path, monkeypatch
     assert outcome.mode == "real"
     assert "analysis_id=file:" in outcome.message
     assert len([call for call in calls if call.startswith("POST")]) == 0
+
+
+@pytest.mark.asyncio
+async def test_scan_virustotal_uploads_and_returns_pending_analysis(tmp_path, monkeypatch) -> None:
+    import httpx
+
+    artifact = tmp_path / "plugin.zip"
+    artifact.write_bytes(b"clean")
+
+    class FakeClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers):
+            return httpx.Response(404, json={}, request=httpx.Request("GET", url))
+
+        async def post(self, url, headers, files):
+            return httpx.Response(
+                200,
+                json={"data": {"id": "analysis-1"}},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr("astrbot_registry.services.scan_service.httpx.AsyncClient", FakeClient)
+
+    outcome = await _scan_virustotal(
+        artifact,
+        {
+            "api_key": "test-key",
+            "timeout_seconds": 1,
+            "poll_interval_seconds": 10,
+            "max_poll_interval_seconds": 120,
+            "max_poll_attempts": 24,
+            "max_wait_seconds": 1800,
+            "max_direct_upload_bytes": 1024,
+        },
+    )
+
+    assert outcome.passed is None
+    assert outcome.mode == "pending"
+    assert outcome.virustotal_analysis_id == "analysis-1"
+    assert outcome.virustotal_file_sha256 is not None
+    assert outcome.virustotal_next_poll_at is not None
+    assert "VirusTotal analysis pending" in outcome.message
+
+
+@pytest.mark.asyncio
+async def test_poll_virustotal_analysis_returns_real_result_when_completed(monkeypatch) -> None:
+    import httpx
+
+    class FakeClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "attributes": {
+                            "status": "completed",
+                            "stats": {
+                                "malicious": 0,
+                                "suspicious": 0,
+                                "harmless": 1,
+                                "undetected": 63,
+                            },
+                        }
+                    }
+                },
+                request=httpx.Request("GET", url),
+            )
+
+    monkeypatch.setattr("astrbot_registry.services.scan_service.httpx.AsyncClient", FakeClient)
+
+    outcome = await _poll_virustotal_analysis(
+        "analysis-1",
+        {
+            "api_key": "test-key",
+            "timeout_seconds": 1,
+        },
+    )
+
+    assert outcome.passed is True
+    assert outcome.mode == "real"
+    assert outcome.virustotal_analysis_id == "analysis-1"
 
 
 @pytest.mark.asyncio
@@ -259,7 +362,9 @@ async def test_scan_virustotal_falls_back_to_file_report_after_upload_conflict(
             "api_key": "test-key",
             "timeout_seconds": 1,
             "poll_interval_seconds": 1,
+            "max_poll_interval_seconds": 2,
             "max_poll_attempts": 1,
+            "max_wait_seconds": 30,
             "max_direct_upload_bytes": 1024,
         },
     )

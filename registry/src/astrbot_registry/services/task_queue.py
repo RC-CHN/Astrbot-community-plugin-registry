@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
+import time
 import uuid
 from typing import Any
 
@@ -14,6 +14,7 @@ from ..config import settings
 from .runtime_config import runtime_task_max_attempts, runtime_task_retry_delay_seconds
 
 QUEUE_KEY = settings.redis_task_queue_key
+DELAYED_QUEUE_KEY = settings.redis_task_delayed_queue_key
 DEAD_LETTER_QUEUE_KEY = settings.redis_task_dead_letter_queue_key
 
 
@@ -38,7 +39,13 @@ def create_task_envelope(
     return envelope
 
 
-async def enqueue_task(task_type: str, payload: dict[str, Any], db: AsyncSession | None = None) -> bool:
+async def enqueue_task(
+    task_type: str,
+    payload: dict[str, Any],
+    db: AsyncSession | None = None,
+    *,
+    delay_seconds: float = 0,
+) -> bool:
     """Queue a background task.
 
     Returns False when Redis is unavailable so API handlers can use a local
@@ -47,21 +54,39 @@ async def enqueue_task(task_type: str, payload: dict[str, Any], db: AsyncSession
     redis = await get_redis()
     if redis is None:
         return False
-    await redis.rpush(
-        QUEUE_KEY,
-        encode_task(
-            create_task_envelope(
-                task_type,
-                payload,
-                max_attempts=await runtime_task_max_attempts(db),
-            )
+    await push_task(
+        redis,
+        create_task_envelope(
+            task_type,
+            payload,
+            max_attempts=await runtime_task_max_attempts(db),
         ),
+        delay_seconds=delay_seconds,
     )
     return True
 
 
 def encode_task(task: dict[str, Any]) -> str:
     return json.dumps(task, separators=(",", ":"))
+
+
+async def push_task(redis, task: dict[str, Any], *, delay_seconds: float = 0) -> None:
+    encoded = encode_task(task)
+    if delay_seconds > 0:
+        await redis.zadd(DELAYED_QUEUE_KEY, {encoded: time.time() + delay_seconds})
+        return
+    await redis.rpush(QUEUE_KEY, encoded)
+
+
+async def promote_due_tasks(redis, *, limit: int = 100) -> int:
+    raw_tasks = await redis.zrangebyscore(DELAYED_QUEUE_KEY, 0, time.time(), start=0, num=limit)
+    promoted = 0
+    for raw in raw_tasks:
+        removed = await redis.zrem(DELAYED_QUEUE_KEY, raw)
+        if removed:
+            await redis.rpush(QUEUE_KEY, raw)
+            promoted += 1
+    return promoted
 
 
 async def requeue_task(task: dict[str, Any], error: Exception, db: AsyncSession | None = None) -> bool:
@@ -77,7 +102,5 @@ async def requeue_task(task: dict[str, Any], error: Exception, db: AsyncSession 
         return False
 
     retry_delay = await runtime_task_retry_delay_seconds(db)
-    if retry_delay > 0:
-        await asyncio.sleep(retry_delay)
-    await redis.rpush(QUEUE_KEY, encode_task(task))
+    await push_task(redis, task, delay_seconds=retry_delay)
     return True

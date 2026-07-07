@@ -19,6 +19,7 @@ spec:
         app.kubernetes.io/component: worker
         app.kubernetes.io/part-of: astrbot-registry
     spec:
+      terminationGracePeriodSeconds: 900
       initContainers:
         - name: wait-for-backend
           image: ghcr.io/rc-chn/astrbot-community-plugin-registry-worker:latest

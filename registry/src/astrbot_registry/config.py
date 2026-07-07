@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     redis_url: str | None = "redis://localhost:6379"
     redis_cache_ttl: int = 3600
     redis_task_queue_key: str = "registry_tasks"
+    redis_task_delayed_queue_key: str = "registry_tasks_delayed"
     redis_task_dead_letter_queue_key: str = "registry_tasks_dead"
     task_max_attempts: int = 3
     task_retry_delay_seconds: int = 5
@@ -69,8 +70,10 @@ class Settings(BaseSettings):
     # Security scans
     virustotal_api_key: str = ""
     virustotal_timeout_seconds: int = 120
-    virustotal_poll_interval_seconds: int = 5
+    virustotal_poll_interval_seconds: int = 10
+    virustotal_max_poll_interval_seconds: int = 320
     virustotal_max_poll_attempts: int = 24
+    virustotal_max_wait_seconds: int = 1800
     virustotal_max_direct_upload_bytes: int = 32 * 1024 * 1024
     llm_agent_enabled: bool = False
     llm_agent_base_url: str = ""
