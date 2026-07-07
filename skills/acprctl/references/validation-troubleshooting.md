@@ -206,7 +206,7 @@ Interpretation:
 
 - `build_status=pending` or `building`: worker may be busy or not processing tasks.
 - `build_status=failed`: inspect `build_log` in `plugin show`.
-- scan provider `mode=pending`: scan task has not completed.
+- scan provider `mode=pending`: scan task has not completed; VirusTotal may be waiting on asynchronous remote analysis polling.
 - scan provider `mode=error`: inspect the provider message.
 
 Recovery:
@@ -317,14 +317,13 @@ Publish:
 acprctl review publish <plugin-key-or-id> --version <version>
 ```
 
-If publish partially succeeds and then fails, inspect state:
+If publish fails, inspect the blocking state:
 
 ```bash
 acprctl --format json plugin show <plugin-key-or-id>
-acprctl plugin version set-status <plugin-key-or-id> --version <version> --status active
-acprctl plugin version set-latest <plugin-key-or-id> --version <version>
-acprctl cache refresh
 ```
+
+Publishing is atomic on the backend. It should not leave a plugin half-published; fix the reported blocker, then retry `acprctl review publish`.
 
 ## Webhook Verification
 

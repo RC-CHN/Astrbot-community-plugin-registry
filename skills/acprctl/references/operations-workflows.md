@@ -141,7 +141,7 @@ Delete only with explicit user intent:
 acprctl review delete astrbot-plugin-example --yes
 ```
 
-Publishing calls three backend operations: set plugin active/reviewed, set version active, set latest. It is not transactional; if a later step fails, inspect `plugin show` and repair the specific status.
+Publishing is a backend-atomic operation. It enables the plugin, records the review status, marks the selected version publishable, sets it as the current public version, and refreshes the registry cache only after build and scan checks pass.
 
 ## Version Management
 
@@ -228,4 +228,3 @@ Refresh public registry cache after manual repairs:
 ```bash
 acprctl cache refresh
 ```
-

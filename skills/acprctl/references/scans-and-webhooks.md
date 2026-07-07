@@ -20,7 +20,9 @@ SCAN_UNCONFIGURED_MESSAGE
 VIRUSTOTAL_API_KEY
 VIRUSTOTAL_TIMEOUT_SECONDS
 VIRUSTOTAL_POLL_INTERVAL_SECONDS
+VIRUSTOTAL_MAX_POLL_INTERVAL_SECONDS
 VIRUSTOTAL_MAX_POLL_ATTEMPTS
+VIRUSTOTAL_MAX_WAIT_SECONDS
 VIRUSTOTAL_MAX_DIRECT_UPLOAD_BYTES
 LLM_AGENT_ENABLED
 LLM_AGENT_BASE_URL
@@ -50,6 +52,20 @@ Enable VirusTotal:
 ```bash
 acprctl config set --key VIRUSTOTAL_API_KEY --value '<vt-api-key>'
 ```
+
+Tune VirusTotal asynchronous polling:
+
+```bash
+acprctl config set \
+  --key VIRUSTOTAL_POLL_INTERVAL_SECONDS --value 10 \
+  --key VIRUSTOTAL_MAX_POLL_INTERVAL_SECONDS --value 320 \
+  --key VIRUSTOTAL_MAX_WAIT_SECONDS --value 1800
+```
+
+VirusTotal uploads return an analysis ID before the remote analysis is complete.
+While waiting, the provider stays `pending` with `pass=null`; it is not
+publishable until VirusTotal and LLM both explicitly pass or an administrator
+skips a provider.
 
 Allow publishing when automatic scans are deliberately disabled to save resources:
 
@@ -181,4 +197,3 @@ Expected responses:
 - `{"status":"ignored"}` for an unknown repository or missing payload fields.
 - `401` for invalid signature.
 - `503` when secrets are required but no secret is configured.
-

@@ -84,5 +84,5 @@ acprctl
 - Some enum validation is delegated to the server, so invalid statuses/providers may return server validation errors.
 - Wait success for build workflows is based on a version reaching `build_status=success`.
 - Wait success for scan workflows requires selected scan providers to have completed passing or skipped results.
-- `review publish` is not transactional. If a later server call fails, inspect the plugin and repair the specific version/status/latest state.
+- `review publish` and `review skip` use the backend atomic publish endpoint.
 - Public plugin search and user management are outside the current administrator CLI scope.

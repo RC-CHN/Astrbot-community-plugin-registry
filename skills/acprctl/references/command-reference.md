@@ -246,6 +246,7 @@ acprctl review delete <plugin-key|id> --yes
 ```
 
 `review list` is a filtered `plugin list` for pending plugins.
+`review publish` and `review skip` publish atomically on the backend. They enable the plugin, mark the selected version publishable, set it as the current public version, and refresh cache only after build and scan checks pass. `review skip` skips human review only; it does not bypass security scans.
 
 ## Runtime Config, Cache, and Stats
 
