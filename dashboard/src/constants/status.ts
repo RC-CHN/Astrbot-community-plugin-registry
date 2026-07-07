@@ -9,14 +9,14 @@ export type StatusMeta = {
 
 export const pluginStatusMeta: Record<PluginStatus, StatusMeta> = {
   pending: { label: '待审核', type: 'warning' },
-  active: { label: '已发布', type: 'success' },
+  active: { label: '已启用', type: 'success' },
   disabled: { label: '已禁用', type: 'default' },
   deleted: { label: '已删除', type: 'error' },
 }
 
 export const versionStatusMeta: Record<VersionStatus, StatusMeta> = {
   draft: { label: '草稿', type: 'info' },
-  active: { label: '可用', type: 'success' },
+  active: { label: '可发布', type: 'success' },
   deprecated: { label: '已废弃', type: 'default' },
   deleted: { label: '已删除', type: 'error' },
 }

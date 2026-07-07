@@ -6,6 +6,7 @@ import {
   getPlugin,
   listPendingPlugins,
   listPlugins,
+  publishVersion,
   refreshCache,
   runVersionScanProvider,
   setLatestVersion,
@@ -79,6 +80,18 @@ export function usePluginMutations() {
     setLatest: useMutation({
       mutationFn: ({ pluginId, versionId }: { pluginId: string; versionId: string }) =>
         setLatestVersion(pluginId, versionId),
+      onSuccess: invalidatePlugins,
+    }),
+    publishVersion: useMutation({
+      mutationFn: ({
+        pluginId,
+        versionId,
+        reviewStatus,
+      }: {
+        pluginId: string
+        versionId: string
+        reviewStatus: 'approved' | 'skipped'
+      }) => publishVersion(pluginId, versionId, reviewStatus),
       onSuccess: invalidatePlugins,
     }),
     triggerScan: useMutation({

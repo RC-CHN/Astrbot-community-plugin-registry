@@ -312,6 +312,54 @@ async def set_latest_version(
     return version
 
 
+async def publish_plugin_version(
+    db: AsyncSession,
+    plugin_id: uuid.UUID,
+    version_id: uuid.UUID,
+    *,
+    review_status: str = "approved",
+) -> PluginVersion:
+    if review_status not in {"approved", "skipped"}:
+        raise ValidationError("Invalid review status for publishing")
+
+    plugin = await db.scalar(
+        select(Plugin)
+        .where(Plugin.id == plugin_id)
+        .with_for_update()
+    )
+    if plugin is None:
+        raise NotFoundError("Plugin not found")
+
+    result = await db.execute(
+        select(PluginVersion)
+        .where(PluginVersion.plugin_id == plugin_id)
+        .options(selectinload(PluginVersion.scan))
+        .with_for_update()
+    )
+    versions = result.scalars().all()
+    version = next((item for item in versions if item.id == version_id), None)
+    if version is None:
+        raise NotFoundError("Version not found")
+    if version.build_status != "success":
+        raise InvalidStateError("Version build must be successful before publishing")
+    if not scan_passed(version):
+        raise InvalidStateError("Version security scan must pass before publishing")
+
+    plugin.status = "active"
+    plugin.review_status = review_status
+    version.version_status = "active"
+    await db.execute(
+        update(PluginVersion)
+        .where(PluginVersion.plugin_id == plugin_id)
+        .values(is_latest=False)
+    )
+    version.is_latest = True
+    await db.commit()
+    await db.refresh(version)
+    await _refresh_registry_cache(db)
+    return version
+
+
 async def list_versions(
     db: AsyncSession,
     plugin_id: uuid.UUID,

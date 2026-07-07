@@ -1267,10 +1267,6 @@ func publishReview(args []string, c *client, reviewStatus string) (any, *cliErro
 	if err != nil {
 		return nil, err
 	}
-	pluginResult, err := c.request("PUT", "/admin/plugins/"+pluginID+"/status", nil, map[string]string{"status": "active", "review_status": reviewStatus}, true, true)
-	if err != nil {
-		return nil, err
-	}
 	versions, err := requestList(c, "/admin/plugins/"+pluginID+"/versions")
 	if err != nil {
 		return nil, err
@@ -1280,19 +1276,20 @@ func publishReview(args []string, c *client, reviewStatus string) (any, *cliErro
 		return nil, err
 	}
 	versionID := stringField(version, "id")
-	versionResult, err := c.request("PUT", "/admin/plugins/"+pluginID+"/versions/"+versionID+"/status", nil, map[string]string{"status": "active"}, true, true)
-	if err != nil {
-		return nil, err
-	}
-	latestResult, err := c.request("PUT", "/admin/plugins/"+pluginID+"/versions/"+versionID+"/latest", nil, map[string]bool{"is_latest": true}, true, true)
+	result, err := c.request(
+		"POST",
+		"/admin/plugins/"+pluginID+"/versions/"+versionID+"/publish",
+		nil,
+		map[string]string{"review_status": reviewStatus},
+		true,
+		true,
+	)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{
-		"plugin_status":  pluginResult,
-		"version_status": versionResult,
-		"latest":         latestResult,
-		"version":        version,
+		"publish": result,
+		"version": version,
 	}, nil
 }
 

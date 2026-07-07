@@ -54,7 +54,7 @@
           </dl>
         </section>
 
-        <publish-blocker-alert :blockers="blockers" />
+        <publish-blocker-alert :blockers="publishBlockers" />
 
         <section class="version-section">
           <h3 class="section-title">版本列表</h3>
@@ -74,16 +74,19 @@
 
         <section class="action-section">
           <h3 class="section-title">审核操作</h3>
+          <p class="section-note">
+            发布当前版本会同时启用插件、标记版本可发布并设为当前公开版本；跳过人工审核不会跳过构建和安全扫描。
+          </p>
           <div class="action-bar">
             <n-space align="center" justify="space-between" wrap :size="16">
               <n-button @click="router.push(`/plugins/${plugin.id}`)">打开详情</n-button>
               <n-space align="center" wrap :size="12">
                 <n-button-group>
-                  <n-button :disabled="!plugin.versions.length" @click="approvePluginOnly">
-                    仅通过插件
+                  <n-button @click="approvePluginOnly">
+                    仅标记审核通过
                   </n-button>
-                  <n-button type="primary" :disabled="blockers.length > 0" @click="approveAndPublish">
-                    通过并发布
+                  <n-button type="primary" :disabled="publishBlockers.length > 0" @click="approveAndPublish">
+                    审核通过并发布当前版本
                   </n-button>
                 </n-button-group>
 
@@ -95,11 +98,11 @@
                   @positive-click="skipReviewAndPublish"
                 >
                   <template #trigger>
-                    <n-button type="warning" secondary :disabled="!plugin.versions.length">
-                      跳过审核并发布
+                    <n-button type="warning" secondary :disabled="publishBlockers.length > 0">
+                      跳过人工审核并发布
                     </n-button>
                   </template>
-                  跳过人工审核会直接公开当前版本，请确认这个插件来源可信。
+                  这只跳过人工审核，不会跳过构建和安全扫描。确认后会公开当前版本。
                 </n-popconfirm>
 
                 <n-divider vertical style="height: 24px" />
@@ -152,11 +155,14 @@ const mutations = usePluginMutations()
 const actionError = ref<unknown>(null)
 const plugin = computed(() => detailQuery.data.value)
 const candidate = computed(() => plugin.value?.versions[0])
-const blockers = computed(() =>
-  plugin.value && candidate.value
-    ? getVersionBlockers(plugin.value, candidate.value, { includePluginStatus: false })
-    : [],
-)
+const publishBlockers = computed(() => {
+  if (!plugin.value) return []
+  if (!candidate.value) return ['暂无版本']
+  return getVersionBlockers(plugin.value, candidate.value, {
+    includePluginStatus: false,
+    includeVersionStatus: false,
+  })
+})
 
 watch(
   () => pendingQuery.data.value,
@@ -173,38 +179,24 @@ async function approvePluginOnly() {
 
 async function approveAndPublish() {
   if (!plugin.value || !candidate.value) return
-  await runAction(async () => {
-    await mutations.updatePluginReviewStatus.mutateAsync({
-      pluginId: plugin.value!.id,
-      status: 'active',
-      reviewStatus: 'approved',
-    })
-    await mutations.updateVersionStatus.mutateAsync({
+  await runAction(() =>
+    mutations.publishVersion.mutateAsync({
       pluginId: plugin.value!.id,
       versionId: candidate.value!.id,
-      status: 'active',
-    })
-    await mutations.setLatest.mutateAsync({ pluginId: plugin.value!.id, versionId: candidate.value!.id })
-    await mutations.refreshCache.mutateAsync()
-  })
+      reviewStatus: 'approved',
+    }),
+  )
 }
 
 async function skipReviewAndPublish() {
   if (!plugin.value || !candidate.value) return
-  await runAction(async () => {
-    await mutations.updatePluginReviewStatus.mutateAsync({
-      pluginId: plugin.value!.id,
-      status: 'active',
-      reviewStatus: 'skipped',
-    })
-    await mutations.updateVersionStatus.mutateAsync({
+  await runAction(() =>
+    mutations.publishVersion.mutateAsync({
       pluginId: plugin.value!.id,
       versionId: candidate.value!.id,
-      status: 'active',
-    })
-    await mutations.setLatest.mutateAsync({ pluginId: plugin.value!.id, versionId: candidate.value!.id })
-    await mutations.refreshCache.mutateAsync()
-  })
+      reviewStatus: 'skipped',
+    }),
+  )
 }
 
 async function disablePlugin() {
@@ -274,6 +266,7 @@ function reviewStatusLabel(status: string) {
 
 <style scoped>
 .review-layout {
+  align-items: start;
   display: grid;
   gap: 24px;
   grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
@@ -289,6 +282,13 @@ function reviewStatusLabel(status: string) {
   min-height: 600px;
   min-width: 0;
   padding: 24px;
+}
+
+.review-list {
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  position: sticky;
+  top: 16px;
 }
 
 .review-item {
@@ -335,6 +335,13 @@ function reviewStatusLabel(status: string) {
   margin: 0 0 12px;
 }
 
+.section-note {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: -4px 0 12px;
+}
+
 .meta {
   background: var(--surface-hover);
   border-radius: 8px;
@@ -372,7 +379,9 @@ function reviewStatusLabel(status: string) {
   }
 
   .review-list {
+    max-height: 360px;
     min-height: auto;
+    position: static;
   }
 }
 </style>

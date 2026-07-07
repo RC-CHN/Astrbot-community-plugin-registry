@@ -78,6 +78,13 @@ export function setLatestVersion(pluginId: string, versionId: string) {
   })
 }
 
+export function publishVersion(pluginId: string, versionId: string, reviewStatus: 'approved' | 'skipped') {
+  return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/versions/${versionId}/publish`, {
+    method: 'POST',
+    body: JSON.stringify({ review_status: reviewStatus }),
+  })
+}
+
 export function triggerVersionScan(pluginId: string, versionId: string) {
   return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/scan`, {
     method: 'POST',

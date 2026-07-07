@@ -4,7 +4,7 @@
     :data="versions"
     :pagination="false"
     :row-key="rowKey"
-    :scroll-x="1120"
+    :scroll-x="1240"
     size="small"
   />
 </template>
@@ -52,7 +52,9 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
     render(row) {
       return h('div', { class: 'version-cell' }, [
         h('div', { class: 'version-name' }, row.version),
-        row.is_latest ? h(NTag, { type: 'success', size: 'small', round: true }, { default: () => 'latest' }) : null,
+        row.is_latest
+          ? h(NTag, { type: 'success', size: 'small', round: true }, { default: () => '当前公开版本' })
+          : null,
       ])
     },
   },
@@ -106,7 +108,7 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
     title: '操作',
     key: 'actions',
     align: 'right',
-    width: 200,
+    width: 250,
     render(row) {
       const activeCheck = canActivateVersion(row)
       const latestBlockers = getVersionBlockers(props.plugin, row)
@@ -117,7 +119,7 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
           disabled: !activeCheck.ok || row.version_status === 'active',
           onClick: () => emit('setVersionStatus', row, 'active'),
         },
-        { default: () => '设为可用' },
+        { default: () => '标记可发布' },
       )
       const latestButton = h(
         NButton,
@@ -127,7 +129,7 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
           disabled: latestBlockers.length > 0 || row.is_latest,
           onClick: () => emit('setLatest', row),
         },
-        { default: () => '设为 latest' },
+        { default: () => '设为公开版本' },
       )
       const scanDisabled = !row.download_url || row.build_status === 'scanning'
       const scanOptions: DropdownOption[] = [
@@ -188,12 +190,12 @@ function scanTooltip(row: VersionSummary) {
   return h('div', { class: 'scan-tooltip' }, [
     h('div', { class: 'scan-tooltip-row' }, [
       h('strong', null, 'VirusTotal'),
-      h('span', null, `${modeLabel(vt.mode)} / ${passLabel(vt.pass)}`),
+      h('span', null, `${modeLabel(vt.mode)} / ${passLabel(vt.pass, vt.mode)}`),
       vt.msg ? h('span', { class: 'scan-tooltip-msg' }, vt.msg) : null,
     ]),
     h('div', { class: 'scan-tooltip-row' }, [
       h('strong', null, 'LLM Agent'),
-      h('span', null, `${modeLabel(llm.mode)} / ${passLabel(llm.pass)}`),
+      h('span', null, `${modeLabel(llm.mode)} / ${passLabel(llm.pass, llm.mode)}`),
       llm.msg ? h('span', { class: 'scan-tooltip-msg' }, llm.msg) : null,
     ]),
   ])
@@ -209,7 +211,8 @@ function modeLabel(mode: string) {
   return labels[mode] || mode
 }
 
-function passLabel(value: boolean | null) {
+function passLabel(value: boolean | null, mode: string) {
+  if (mode === 'pending') return '等待结果'
   if (value === true) return '通过'
   if (value === false) return '未通过'
   return '无结果'

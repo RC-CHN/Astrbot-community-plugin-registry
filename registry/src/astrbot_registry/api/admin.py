@@ -30,6 +30,7 @@ from ..schemas.admin import (
     PluginDetail,
     PluginCreateRequest,
     PluginListResponse,
+    PublishVersionRequest,
     PluginStatusUpdate,
     PluginSubmitResponse,
     PluginSummary,
@@ -54,6 +55,7 @@ from ..services.plugin_service import (
     get_plugin_with_details,
     list_plugins,
     list_versions,
+    publish_plugin_version,
     set_latest_version,
     set_plugin_status,
     set_version_status,
@@ -510,6 +512,23 @@ async def set_latest(
         raise HTTPException(status_code=400, detail="Setting is_latest=false is not supported")
     await set_latest_version(db, uuid.UUID(plugin_id), uuid.UUID(version_id))
     return {"status": "updated"}
+
+
+@admin_router.post("/plugins/{plugin_id}/versions/{version_id}/publish", response_model=StatusResponse)
+async def publish_version(
+    plugin_id: str,
+    version_id: str,
+    request: PublishVersionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    await publish_plugin_version(
+        db,
+        uuid.UUID(plugin_id),
+        uuid.UUID(version_id),
+        review_status=request.review_status,
+    )
+    return {"status": "published"}
 
 
 @admin_router.put("/plugins/{plugin_id}/versions/{version_id}/status", response_model=StatusResponse)

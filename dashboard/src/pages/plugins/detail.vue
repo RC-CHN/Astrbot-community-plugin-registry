@@ -11,8 +11,8 @@
     </template>
     <template #actions>
       <n-button @click="router.back()">返回</n-button>
-      <n-button v-if="plugin?.status === 'pending'" type="primary" @click="setPluginStatus('active')">
-        通过插件
+      <n-button v-if="plugin?.status === 'pending'" type="primary" @click="approvePluginOnly">
+        仅标记审核通过
       </n-button>
       <n-popconfirm
         v-if="plugin?.status === 'pending' && latestCandidate"
@@ -21,9 +21,11 @@
         @positive-click="skipReviewAndPublish"
       >
         <template #trigger>
-          <n-button type="warning" secondary>跳过审核并发布</n-button>
+          <n-button type="warning" secondary :disabled="publishCandidateBlockers.length > 0">
+            跳过人工审核并发布
+          </n-button>
         </template>
-        跳过人工审核会直接公开当前版本，请确认这个插件来源可信。
+        这只跳过人工审核，不会跳过构建和安全扫描。确认后会公开当前版本。
       </n-popconfirm>
       <n-button v-if="plugin?.status === 'active'" secondary @click="setPluginStatus('disabled')">
         禁用
@@ -77,8 +79,9 @@
         </div>
         <div class="panel">
           <h2>发布阻断</h2>
-          <publish-blocker-alert :blockers="latestCandidateBlockers" />
-          <n-empty v-if="!latestCandidateBlockers.length" description="当前 latest 版本可公开访问" />
+          <p class="panel-note">发布操作会同时启用插件、标记版本可发布并设为当前公开版本。</p>
+          <publish-blocker-alert :blockers="publishCandidateBlockers" />
+          <n-empty v-if="!publishCandidateBlockers.length" description="当前候选版本可以发布" />
         </div>
       </section>
 
@@ -125,13 +128,29 @@ const mutations = usePluginMutations()
 const actionError = ref<unknown>(null)
 const plugin = computed(() => query.data.value)
 const latestCandidate = computed(() => plugin.value?.versions.find((item) => item.is_latest) || plugin.value?.versions[0])
-const latestCandidateBlockers = computed(() =>
-  plugin.value && latestCandidate.value ? getVersionBlockers(plugin.value, latestCandidate.value) : [],
-)
+const publishCandidateBlockers = computed(() => {
+  if (!plugin.value) return []
+  if (!latestCandidate.value) return ['暂无版本']
+  return getVersionBlockers(plugin.value, latestCandidate.value, {
+    includePluginStatus: false,
+    includeVersionStatus: false,
+  })
+})
 
 async function setPluginStatus(status: 'active' | 'disabled') {
   if (!plugin.value) return
   await runAction(() => mutations.updatePluginStatus.mutateAsync({ pluginId: plugin.value!.id, status }))
+}
+
+async function approvePluginOnly() {
+  if (!plugin.value) return
+  await runAction(() =>
+    mutations.updatePluginReviewStatus.mutateAsync({
+      pluginId: plugin.value!.id,
+      status: 'active',
+      reviewStatus: 'approved',
+    }),
+  )
 }
 
 async function setVersionStatus(version: VersionSummary, status: VersionStatus) {
@@ -159,23 +178,13 @@ async function deletePlugin() {
 
 async function skipReviewAndPublish() {
   if (!plugin.value || !latestCandidate.value) return
-  await runAction(async () => {
-    await mutations.updatePluginReviewStatus.mutateAsync({
+  await runAction(() =>
+    mutations.publishVersion.mutateAsync({
       pluginId: plugin.value!.id,
-      status: 'active',
+      versionId: latestCandidate.value!.id,
       reviewStatus: 'skipped',
-    })
-    await mutations.updateVersionStatus.mutateAsync({
-      pluginId: plugin.value!.id,
-      versionId: latestCandidate.value!.id,
-      status: 'active',
-    })
-    await mutations.setLatest.mutateAsync({
-      pluginId: plugin.value!.id,
-      versionId: latestCandidate.value!.id,
-    })
-    await mutations.refreshCache.mutateAsync()
-  })
+    }),
+  )
 }
 
 async function runScanProvider(version: VersionSummary, provider: 'virustotal' | 'llm_agent') {
@@ -232,6 +241,13 @@ function reviewStatusLabel(status: string) {
 h2 {
   font-size: 16px;
   margin: 0 0 12px;
+}
+
+.panel-note {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: -4px 0 12px;
 }
 
 dl {

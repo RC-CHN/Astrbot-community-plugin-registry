@@ -54,6 +54,10 @@ class SetLatestRequest(BaseModel):
     is_latest: bool = True
 
 
+class PublishVersionRequest(BaseModel):
+    review_status: Literal["approved", "skipped"] = "approved"
+
+
 class ConfigUpdate(BaseModel):
     values: dict[str, str]
 
