@@ -1,8 +1,9 @@
 import pytest
+import uuid
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from astrbot_registry.services import task_queue
-from astrbot_registry.services.task_queue import create_task_envelope, promote_due_tasks, requeue_task
+from astrbot_registry.services.task_queue import create_task_envelope, enqueue_task, promote_due_tasks, requeue_task
 from astrbot_registry.worker import pop_task
 
 
@@ -41,6 +42,10 @@ class FakeRedis:
             return 0
         del values[value]
         return 1
+
+
+async def _async_value(value):
+    return value
 
 
 @pytest.mark.asyncio
@@ -86,6 +91,36 @@ async def test_requeue_task_moves_exhausted_task_to_dead_letter(monkeypatch) -> 
     assert requeued is False
     assert redis.items[0][0] == task_queue.DEAD_LETTER_QUEUE_KEY
     assert '"last_error":"boom"' in redis.items[0][1]
+
+
+@pytest.mark.asyncio
+async def test_enqueue_task_creates_observable_task_record(monkeypatch) -> None:
+    redis = FakeRedis()
+    task_id = uuid.UUID("00000000-0000-0000-0000-000000000123")
+
+    async def fake_get_redis():
+        return redis
+
+    async def fake_create_worker_task(db, task_type, payload, **kwargs):
+        assert db == "db"
+        assert task_type == "scan"
+        assert payload == {"version_id": "v1"}
+        assert kwargs["max_attempts"] == 3
+
+        class Record:
+            id = task_id
+
+        return Record()
+
+    monkeypatch.setattr(task_queue, "get_redis", fake_get_redis)
+    monkeypatch.setattr(task_queue, "runtime_task_max_attempts", lambda _db=None: _async_value(3))
+    monkeypatch.setattr(task_queue, "create_worker_task", fake_create_worker_task)
+
+    result = await enqueue_task("scan", {"version_id": "v1"}, db="db")  # type: ignore[arg-type]
+
+    assert result == str(task_id)
+    assert redis.items[0][0] == task_queue.QUEUE_KEY
+    assert f'"id":"{task_id}"' in redis.items[0][1]
 
 
 @pytest.mark.asyncio

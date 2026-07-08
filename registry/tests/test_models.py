@@ -5,6 +5,7 @@ from astrbot_registry.models import (
     ReviewProviderResult,
     SecurityScan,
     SystemConfig,
+    WorkerTask,
     User,
     WebhookEvent,
 )
@@ -21,8 +22,18 @@ def test_status_and_role_constraints_are_declared() -> None:
     assert "ck_versions_build_status" in constraint_names
     assert "ck_versions_version_status" in constraint_names
     assert "ck_users_role" in constraint_names
+    assert "ck_worker_tasks_status" in {constraint.name for constraint in WorkerTask.__table__.constraints}
     assert SystemConfig.__tablename__ == "system_config"
     assert WebhookEvent.__tablename__ == "webhook_events"
+
+
+def test_worker_task_indexes_are_declared() -> None:
+    index_names = {index.name for index in WorkerTask.__table__.indexes}
+
+    assert "idx_worker_tasks_status_created" in index_names
+    assert "idx_worker_tasks_plugin_created" in index_names
+    assert "idx_worker_tasks_version_created" in index_names
+    assert "idx_worker_tasks_type_created" in index_names
 
 
 def test_latest_partial_unique_index_is_declared() -> None:

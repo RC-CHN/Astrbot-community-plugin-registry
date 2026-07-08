@@ -39,6 +39,7 @@ from ..schemas.admin import (
     PluginSummary,
     SetLatestRequest,
     StatusResponse,
+    TaskRetryResponse,
     TokenResponse,
     UserCreate,
     UserResponse,
@@ -46,6 +47,9 @@ from ..schemas.admin import (
     VersionSubmitResponse,
     VersionSummary,
     VersionStatusUpdate,
+    WorkerStatusResponse,
+    WorkerTaskListResponse,
+    WorkerTaskSummary,
 )
 from ..services.auth_service import authenticate_user, create_access_token, get_password_hash
 from ..services.artifact_service import ArtifactError, list_artifact_tree, read_artifact_file
@@ -82,6 +86,12 @@ from ..services.scan_service import (
 from ..services.scan_providers import get_scan_provider_registry
 from ..services.security_service import login_rate_limit_keys, login_rate_limiter
 from ..services.submit_service import submit_repo
+from ..services.task_observability import (
+    get_worker_task,
+    list_worker_tasks,
+    task_to_dict,
+    worker_runtime_status,
+)
 from ..services.task_queue import enqueue_task
 from ..utils.git_utils import parse_github_url
 from ..utils.metadata_parser import parse_metadata_yaml
@@ -687,6 +697,73 @@ async def admin_stats(
         select(func.count(Plugin.id)).where(Plugin.status == "pending")
     )
     return {"total_plugins": total or 0, "pending_plugins": pending or 0}
+
+
+@admin_router.get("/tasks", response_model=WorkerTaskListResponse)
+async def list_tasks_endpoint(
+    status: str | None = None,
+    task_type: str | None = Query(None, alias="type"),
+    plugin_id: str | None = None,
+    version_id: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    tasks, total = await list_worker_tasks(
+        db,
+        status=status,
+        task_type=task_type,
+        plugin_id=plugin_id,
+        version_id=version_id,
+        page=page,
+        page_size=page_size,
+    )
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    return {
+        "items": [task_to_dict(task) for task in tasks],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@admin_router.get("/tasks/{task_id}", response_model=WorkerTaskSummary)
+async def get_task_endpoint(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    task = await get_worker_task(db, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task_to_dict(task)
+
+
+@admin_router.post("/tasks/{task_id}/retry", response_model=TaskRetryResponse)
+async def retry_task_endpoint(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    task = await get_worker_task(db, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status == "running":
+        raise HTTPException(status_code=409, detail="Running tasks cannot be retried")
+    new_task_id = await enqueue_task(task.task_type, task.payload or {}, db=db)
+    if new_task_id is None:
+        raise HTTPException(status_code=503, detail="Redis task queue is unavailable")
+    return {"status": "queued", "task_id": new_task_id}
+
+
+@admin_router.get("/worker/status", response_model=WorkerStatusResponse)
+async def worker_status_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    return await worker_runtime_status(db)
 
 
 @admin_router.get("/config")

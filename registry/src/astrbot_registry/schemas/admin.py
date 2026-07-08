@@ -66,6 +66,10 @@ class StatusResponse(BaseModel):
     status: str
 
 
+class TaskRetryResponse(StatusResponse):
+    task_id: str
+
+
 class PluginSubmitResponse(BaseModel):
     plugin_id: str | None = None
     version: str | None = None
@@ -149,3 +153,48 @@ class PluginDetail(PluginSummary):
 class AdminStatsResponse(BaseModel):
     total_plugins: int
     pending_plugins: int
+
+
+class WorkerTaskSummary(BaseModel):
+    id: str
+    task_type: str
+    status: str
+    plugin_id: str | None = None
+    version_id: str | None = None
+    provider: str | None = None
+    payload_summary: dict = Field(default_factory=dict)
+    attempts: int
+    max_attempts: int
+    queued_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    next_run_at: datetime | None = None
+    worker_id: str | None = None
+    duration_ms: int | None = None
+    last_error: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WorkerTaskListResponse(BaseModel):
+    items: list[WorkerTaskSummary]
+    total: int
+    page: int
+    page_size: int
+
+
+class WorkerHeartbeat(BaseModel):
+    worker_id: str
+    hostname: str | None = None
+    pid: int | None = None
+    heartbeat_at: str | None = None
+    current_task_id: str | None = None
+
+
+class WorkerStatusResponse(BaseModel):
+    redis_connected: bool
+    queue_length: int = 0
+    delayed_length: int = 0
+    dead_letter_length: int = 0
+    active_workers: list[WorkerHeartbeat] = Field(default_factory=list)
+    tasks_by_status: dict[str, int] = Field(default_factory=dict)

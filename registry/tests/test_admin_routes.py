@@ -20,6 +20,12 @@ def test_publish_version_route_precedes_version_status_route() -> None:
     )
 
 
+def test_tasks_route_precedes_task_detail_route() -> None:
+    paths = [route.path for route in admin_router.routes if hasattr(route, "path")]
+
+    assert paths.index("/admin/tasks") < paths.index("/admin/tasks/{task_id}")
+
+
 @pytest.mark.asyncio
 async def test_update_config_endpoint_returns_config_response(monkeypatch) -> None:
     async def fake_update_config(db, values):

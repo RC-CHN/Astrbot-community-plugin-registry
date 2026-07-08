@@ -16,6 +16,12 @@ from .services.build_service import build_from_repo
 from .services.plugin_service import get_plugin
 from .services.scan_service import poll_virustotal_analysis, scan_version
 from .services.submit_service import submit_repo
+from .services.task_observability import (
+    make_worker_id,
+    mark_task_running,
+    mark_task_succeeded,
+    write_worker_heartbeat,
+)
 from .services.task_queue import QUEUE_KEY, promote_due_tasks, requeue_task
 
 logger = logging.getLogger(__name__)
@@ -87,17 +93,30 @@ async def run_worker() -> None:
     if redis is None:
         raise RuntimeError("Redis is required to run the worker")
 
+    worker_id = make_worker_id()
     stop_event = asyncio.Event()
     _install_shutdown_handlers(stop_event)
-    logger.info("Registry worker started")
+    logger.info("Registry worker started: %s", worker_id)
     while not stop_event.is_set():
         task = None
         try:
+            await write_worker_heartbeat(redis, worker_id)
             await promote_due_tasks(redis)
             task = await pop_task(redis)
             if task is None:
                 continue
+            async with async_session() as db:
+                await mark_task_running(
+                    db,
+                    task.get("id"),
+                    worker_id=worker_id,
+                    attempts=int(task.get("attempts") or 0),
+                )
+            await write_worker_heartbeat(redis, worker_id, current_task_id=task.get("id"))
             await handle_task(task)
+            async with async_session() as db:
+                await mark_task_succeeded(db, task.get("id"))
+            await write_worker_heartbeat(redis, worker_id)
         except Exception as exc:
             logger.exception("Background task failed")
             if task is not None:
@@ -105,7 +124,8 @@ async def run_worker() -> None:
                     requeued = await requeue_task(task, exc, db=db)
                 if not requeued:
                     logger.error("Task moved to dead-letter queue: %s", task.get("id"))
-    logger.info("Registry worker drained and stopped")
+            await write_worker_heartbeat(redis, worker_id)
+    logger.info("Registry worker drained and stopped: %s", worker_id)
 
 
 def main() -> None:

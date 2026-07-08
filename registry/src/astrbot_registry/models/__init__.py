@@ -4,6 +4,7 @@ from .plugin import Plugin
 from .scan import ReviewProviderResult, SecurityScan
 from .stats import PluginVersionStat
 from .tag import Tag, plugin_tags
+from .task import WorkerTask
 from .user import User
 from .version import PluginVersion
 from .webhook import WebhookEvent
@@ -18,6 +19,7 @@ __all__ = [
     "PluginI18n",
     "PluginVersionStat",
     "SystemConfig",
+    "WorkerTask",
     "User",
     "WebhookEvent",
 ]

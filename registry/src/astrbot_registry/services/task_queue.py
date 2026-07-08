@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..cache import get_redis
 from ..config import settings
 from .runtime_config import runtime_task_max_attempts, runtime_task_retry_delay_seconds
+from .task_observability import create_worker_task, mark_task_dead, mark_task_retrying
 
 QUEUE_KEY = settings.redis_task_queue_key
 DELAYED_QUEUE_KEY = settings.redis_task_delayed_queue_key
@@ -45,25 +46,38 @@ async def enqueue_task(
     db: AsyncSession | None = None,
     *,
     delay_seconds: float = 0,
-) -> bool:
+) -> str | None:
     """Queue a background task.
 
-    Returns False when Redis is unavailable so API handlers can use a local
+    Returns None when Redis is unavailable so API handlers can use a local
     development fallback.
     """
     redis = await get_redis()
     if redis is None:
-        return False
+        return None
+    max_attempts = await runtime_task_max_attempts(db)
+    task_id = str(uuid.uuid4())
+    if db is not None:
+        record = await create_worker_task(
+            db,
+            task_type,
+            payload,
+            task_id=task_id,
+            max_attempts=max_attempts,
+            delay_seconds=delay_seconds,
+        )
+        task_id = str(record.id)
     await push_task(
         redis,
         create_task_envelope(
             task_type,
             payload,
-            max_attempts=await runtime_task_max_attempts(db),
+            task_id=task_id,
+            max_attempts=max_attempts,
         ),
         delay_seconds=delay_seconds,
     )
-    return True
+    return task_id
 
 
 def encode_task(task: dict[str, Any]) -> str:
@@ -98,9 +112,19 @@ async def requeue_task(task: dict[str, Any], error: Exception, db: AsyncSession 
     task["last_error"] = str(error)
     max_attempts = int(task.get("max_attempts") or await runtime_task_max_attempts(db))
     if task["attempts"] >= max_attempts:
+        if db is not None:
+            await mark_task_dead(db, task.get("id"), attempts=task["attempts"], error=str(error))
         await redis.rpush(DEAD_LETTER_QUEUE_KEY, encode_task(task))
         return False
 
     retry_delay = await runtime_task_retry_delay_seconds(db)
+    if db is not None:
+        await mark_task_retrying(
+            db,
+            task.get("id"),
+            attempts=task["attempts"],
+            error=str(error),
+            delay_seconds=retry_delay,
+        )
     await push_task(redis, task, delay_seconds=retry_delay)
     return True
