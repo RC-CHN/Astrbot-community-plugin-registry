@@ -8,6 +8,126 @@ export type LoginRequest = {
   password: string
 }
 
+export type RegistrationMode = 'disabled' | 'invite' | 'approval'
+
+export type RegistrationConfigResponse = {
+  mode: RegistrationMode
+  pow_required: boolean
+  invite_required: boolean
+  approval_required: boolean
+}
+
+export type RegisterChallengeResponse = {
+  challenge_id: string
+  salt: string
+  difficulty: number
+  algorithm: 'sha256-leading-zero-bits'
+  expires_at: string
+}
+
+export type RegisterRequest = {
+  username: string
+  email: string
+  password: string
+  invite_code?: string | null
+  challenge_id: string
+  nonce: string
+}
+
+export type RegisterResponse = {
+  status: 'active' | 'pending_approval'
+  user_id: string
+  message: string
+}
+
+export type UserRole = 'admin' | 'reviewer' | 'user'
+export type UserStatus = 'pending_approval' | 'active' | 'disabled'
+
+export type UserSummary = {
+  id: string
+  username: string
+  email: string | null
+  role: UserRole
+  status: UserStatus
+  is_active: boolean
+  created_at: string | null
+}
+
+export type UserListResponse = {
+  items: UserSummary[]
+  total: number
+}
+
+export type InviteSummary = {
+  id: string
+  code: string | null
+  status: 'active' | 'disabled'
+  max_uses: number
+  used_count: number
+  expires_at: string | null
+  note: string | null
+  created_at: string | null
+}
+
+export type InviteListResponse = {
+  items: InviteSummary[]
+  total: number
+}
+
+export type InviteCreateRequest = {
+  code?: string | null
+  max_uses: number
+  expires_at?: string | null
+  note?: string | null
+}
+
+export type CurrentUserResponse = {
+  id: string
+  username: string
+  email: string | null
+  role: UserRole
+  status: UserStatus
+}
+
+export type SubmissionStatus = 'pending_review' | 'accepted' | 'rejected' | 'duplicate'
+export type SubmissionRefType = 'default' | 'branch' | 'tag' | 'commit'
+
+export type SubmissionRequest = {
+  id: string
+  user_id: string
+  username: string | null
+  repo_url: string
+  provider: string
+  ref_type: SubmissionRefType
+  ref: string | null
+  status: SubmissionStatus
+  resolved_commit_sha: string | null
+  accepted_plugin_id: string | null
+  accepted_version_id: string | null
+  user_message: string | null
+  admin_message: string | null
+  accepted_by: string | null
+  accepted_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type SubmissionListResponse = {
+  items: SubmissionRequest[]
+  total: number
+}
+
+export type SubmissionCreateRequest = {
+  repo_url: string
+  ref_type: SubmissionRefType
+  ref?: string | null
+  user_message?: string | null
+}
+
+export type SubmissionDecisionRequest = {
+  admin_message?: string | null
+}
+
 export type PluginStatus = 'pending' | 'active' | 'disabled' | 'deleted'
 export type ReviewStatus = 'pending' | 'approved' | 'skipped' | 'rejected'
 export type VersionStatus = 'draft' | 'active' | 'deprecated' | 'deleted'

@@ -76,12 +76,32 @@ acprctl auth login
 
 Authenticated commands auto-login when no token is available. On `401`, the CLI retries login once when credentials exist.
 
+Register a normal user through the public registration API:
+
+```bash
+acprctl auth register \
+  --username alice \
+  --email alice@example.com \
+  --password '<password>' \
+  [--password-env ACPRCTL_REGISTER_PASSWORD] \
+  [--invite-code '<invite-code>'] \
+  [--invite-code-env ACPRCTL_INVITE_CODE] \
+  [--pow-timeout 30s] \
+  [--pow-workers 4] \
+  [--pow-max-difficulty 26] \
+  [--login] \
+  [--save]
+```
+
+`auth register` fetches `/auth/register/challenge`, computes the SHA-256 leading-zero-bits PoW locally, and submits `/auth/register`. `--login --save` logs in and stores the token only when the returned user status is `active`; `pending_approval` users must wait for an administrator.
+
 ## Command Tree
 
 ```text
 acprctl
 ├── configure
 ├── auth login
+├── auth register
 ├── config list
 ├── config set
 ├── config providers list

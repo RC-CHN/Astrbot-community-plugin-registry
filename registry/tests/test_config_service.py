@@ -1,4 +1,11 @@
-from astrbot_registry.services.config_service import EFFECTIVE_CONFIG_DEFAULTS, build_config_response
+import pytest
+
+from astrbot_registry.services.config_service import (
+    EFFECTIVE_CONFIG_DEFAULTS,
+    ConfigValidationError,
+    _normalize_config_value,
+    build_config_response,
+)
 
 
 def test_config_response_includes_effective_values() -> None:
@@ -48,6 +55,21 @@ def test_config_response_includes_scan_policy_defaults() -> None:
     assert response["effective_values"]["SCAN_ENABLED_PROVIDERS"] == "virustotal,llm_agent"
     assert response["effective_values"]["SCAN_REQUIRE_HUMAN_REVIEW"] == "True"
     assert response["effective_values"]["SCAN_AUTO_PUBLISH_ENABLED"] == "False"
+
+
+def test_config_response_includes_registration_mode_default() -> None:
+    response = build_config_response({})
+
+    assert response["effective_values"]["USER_REGISTRATION_MODE"] == "disabled"
+
+
+def test_registration_mode_config_is_normalized() -> None:
+    assert _normalize_config_value("USER_REGISTRATION_MODE", " Invite ") == "invite"
+
+
+def test_registration_mode_config_rejects_invalid_value() -> None:
+    with pytest.raises(ConfigValidationError):
+        _normalize_config_value("USER_REGISTRATION_MODE", "open")
 
 
 def test_config_response_includes_git_preflight_defaults() -> None:

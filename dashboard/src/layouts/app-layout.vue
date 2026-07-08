@@ -23,11 +23,11 @@
     </n-layout-sider>
     <n-layout>
       <n-layout-header bordered class="topbar">
-        <n-input v-model:value="globalSearch" clearable placeholder="搜索插件" class="global-search">
+        <n-input v-if="isOperator" v-model:value="globalSearch" clearable placeholder="搜索插件" class="global-search">
           <template #prefix><n-icon :component="Search" /></template>
         </n-input>
-        <n-button secondary @click="goPlugins">搜索</n-button>
-        <n-button type="primary" @click="showSubmit = true">
+        <n-button v-if="isOperator" secondary @click="goPlugins">搜索</n-button>
+        <n-button v-if="isOperator" type="primary" @click="showSubmit = true">
           <template #icon><n-icon :component="Plus" /></template>
           提交插件
         </n-button>
@@ -44,11 +44,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { NIcon, type MenuOption } from 'naive-ui'
 import {
   ClipboardCheck,
+  FilePlus2,
   FileJson,
   Hammer,
   PanelLeftClose,
@@ -60,6 +61,7 @@ import {
 } from 'lucide-vue-next'
 
 import PluginSubmitModal from '@/components/plugin/plugin-submit-modal.vue'
+import { getCurrentUser } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 
@@ -69,21 +71,45 @@ const auth = useAuthStore()
 const ui = useUiStore()
 const showSubmit = ref(false)
 const globalSearch = ref('')
+const isOperator = computed(() => auth.role === 'admin' || auth.role === 'reviewer')
+
+onMounted(async () => {
+  if (auth.token && !auth.role) {
+    try {
+      const user = await getCurrentUser()
+      auth.setUser(user.username, user.role)
+      if (user.role === 'user' && route.path !== '/submissions') {
+        await router.replace('/submissions')
+      }
+    } catch {
+      auth.clearSession()
+      await router.replace({ name: 'login' })
+    }
+  }
+})
 
 const icon = (component: unknown) => () => h(NIcon, null, { default: () => h(component as never) })
 
-const menuOptions: MenuOption[] = [
-  { label: '插件', key: '/plugins', icon: icon(Shield) },
-  { label: '待审核', key: '/reviews', icon: icon(ClipboardCheck) },
-  { label: '任务', key: '/builds', icon: icon(Hammer) },
-  { label: '插件源', key: '/source', icon: icon(FileJson) },
-  { label: '配置', key: '/settings', icon: icon(Settings) },
-  { label: '用户', key: '/users', icon: icon(Users) },
-]
+const menuOptions = computed<MenuOption[]>(() => {
+  if (!isOperator.value) {
+    return [{ label: '我的提交', key: '/submissions', icon: icon(FilePlus2) }]
+  }
+  return [
+    { label: '插件', key: '/plugins', icon: icon(Shield) },
+    { label: '提交请求', key: '/submission-requests', icon: icon(FilePlus2) },
+    { label: '待审核', key: '/reviews', icon: icon(ClipboardCheck) },
+    { label: '任务', key: '/builds', icon: icon(Hammer) },
+    { label: '插件源', key: '/source', icon: icon(FileJson) },
+    { label: '配置', key: '/settings', icon: icon(Settings) },
+    { label: '用户', key: '/users', icon: icon(Users) },
+  ]
+})
 
 const userOptions = [{ label: '退出登录', key: 'logout' }]
 const activeMenu = computed(() => {
   if (route.path.startsWith('/plugins')) return '/plugins'
+  if (route.path.startsWith('/submissions')) return '/submissions'
+  if (route.path.startsWith('/submission-requests')) return '/submission-requests'
   if (route.path.startsWith('/reviews')) return '/reviews'
   if (route.path.startsWith('/builds')) return '/builds'
   if (route.path.startsWith('/source')) return '/source'

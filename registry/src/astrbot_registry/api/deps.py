@@ -30,11 +30,15 @@ async def get_current_user(
             detail="Invalid authentication credentials",
         )
     user = await get_user_by_id(db, user_id)
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or user.status != "active":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
+    return user
+
+
+async def get_active_user(user: User = Depends(get_current_user)) -> User:
     return user
 
 

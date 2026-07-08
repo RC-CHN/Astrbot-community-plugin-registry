@@ -135,6 +135,72 @@ async def test_github_webhook_queues_build_for_registered_repo(monkeypatch) -> N
     }
 
 
+@pytest.mark.asyncio
+async def test_accept_submission_queues_submit(monkeypatch) -> None:
+    submission_id = uuid.uuid4()
+    reviewer_id = uuid.uuid4()
+    submission = SimpleNamespace(
+        id=submission_id,
+        user_id=uuid.uuid4(),
+        repo_url="https://github.com/example/astrbot_plugin_demo",
+        provider="github",
+        ref_type="branch",
+        ref="main",
+        status="pending_review",
+        resolved_commit_sha=None,
+        accepted_plugin_id=None,
+        accepted_version_id=None,
+        user_message="please add",
+        admin_message=None,
+        accepted_by=None,
+        accepted_at=None,
+        created_at=None,
+        updated_at=None,
+    )
+    enqueued = {}
+
+    async def fake_get_submission_request(_db, request_id, **_kwargs):
+        assert request_id == submission_id
+        return submission, "alice"
+
+    async def fake_mark_submission_decision(_db, item, *, status, admin_message, accepted_by=None):
+        item.status = status
+        item.admin_message = admin_message
+        item.accepted_by = accepted_by
+        return item
+
+    async def fake_enqueue(_background_tasks, task_type, payload, _db):
+        enqueued["task_type"] = task_type
+        enqueued["payload"] = payload
+
+    monkeypatch.setattr(admin, "get_submission_request", fake_get_submission_request)
+    monkeypatch.setattr(admin, "mark_submission_decision", fake_mark_submission_decision)
+    monkeypatch.setattr(admin, "_enqueue_or_fallback", fake_enqueue)
+
+    result = await admin.accept_submission_endpoint(
+        submission_id,
+        admin.SubmissionDecisionRequest(admin_message="accepted"),
+        BackgroundTasks(),
+        db=object(),  # type: ignore[arg-type]
+        current_user=SimpleNamespace(id=reviewer_id),  # type: ignore[arg-type]
+    )
+
+    assert result["status"] == "accepted"
+    assert result["admin_message"] == "accepted"
+    assert enqueued == {
+        "task_type": "submit",
+        "payload": {
+            "repo_url": "https://github.com/example/astrbot_plugin_demo",
+            "version": None,
+            "ref": "main",
+            "credential_id": None,
+            "temporary_token": None,
+            "changelog": "accepted",
+            "user_id": str(reviewer_id),
+        },
+    }
+
+
 def test_github_webhook_http_route_queues_registered_repo(monkeypatch, client) -> None:
     plugin = _plugin()
     db = FakeWebhookDB(plugin=plugin)

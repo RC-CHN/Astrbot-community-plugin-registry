@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     login_rate_limit_attempts: int = 5
     login_rate_limit_window_seconds: int = 300
     login_rate_limit_block_seconds: int = 900
+    user_registration_mode: str = "disabled"
+    registration_rate_limit_enabled: bool = True
+    registration_challenge_rate_limit_attempts: int = 10
+    registration_challenge_rate_limit_window_seconds: int = 60
+    registration_challenge_rate_limit_block_seconds: int = 60
+    registration_submit_rate_limit_attempts: int = 5
+    registration_submit_rate_limit_window_seconds: int = 3600
+    registration_submit_rate_limit_block_seconds: int = 3600
+    registration_pow_difficulty: int = 20
+    registration_pow_challenge_ttl_seconds: int = 300
 
     # Security scans
     virustotal_api_key: str = ""

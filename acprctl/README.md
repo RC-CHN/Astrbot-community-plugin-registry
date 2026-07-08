@@ -15,6 +15,16 @@ Use against the dev stack:
 ./acprctl --server-url http://localhost:3001 --username admin --password admin123456 stats
 ```
 
+Register a normal user through the public registration API. The CLI fetches the challenge and computes the required PoW locally:
+
+```bash
+./acprctl --server-url https://registry.example.com auth register \
+  --username alice \
+  --email alice@example.com \
+  --password 'strong-password' \
+  --invite-code 'invite-code'
+```
+
 Manage enabled scan providers without hand-editing the full CSV value:
 
 ```bash

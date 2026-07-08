@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,9 +15,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -143,7 +147,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
 	fmt.Fprintln(w, "  configure")
-	fmt.Fprintln(w, "  auth login")
+	fmt.Fprintln(w, "  auth login|register")
 	fmt.Fprintln(w, "  config list|set|providers")
 	fmt.Fprintln(w, "  cache refresh")
 	fmt.Fprintln(w, "  stats")
@@ -661,9 +665,7 @@ func dispatch(args []string, options runtimeOptions, c *client) (any, *cliError)
 	case "configure":
 		return handleConfigure(options)
 	case "auth":
-		if len(args) == 2 && args[1] == "login" {
-			return c.login()
-		}
+		return dispatchAuth(args[1:], options, c)
 	case "config":
 		return dispatchConfig(args[1:], c)
 	case "cache":
@@ -730,6 +732,230 @@ func handleConfigure(options runtimeOptions) (map[string]any, *cliError) {
 		"username":     data["username"],
 		"token_stored": tokenStored,
 	}, nil
+}
+
+func dispatchAuth(args []string, options runtimeOptions, c *client) (any, *cliError) {
+	if len(args) == 0 {
+		return nil, &cliError{Message: "auth command is required", Status: 400, Code: exitValidation}
+	}
+	switch args[0] {
+	case "login":
+		if len(args) != 1 {
+			return nil, &cliError{Message: "auth login does not accept arguments", Status: 400, Code: exitValidation}
+		}
+		return c.login()
+	case "register":
+		return handleAuthRegister(args[1:], options, c)
+	}
+	return nil, &cliError{Message: "unknown auth command: " + args[0], Status: 400, Code: exitValidation}
+}
+
+func handleAuthRegister(args []string, options runtimeOptions, c *client) (any, *cliError) {
+	opts, positionals, err := parseLocalOptions(args, map[string]optionSpec{
+		"username":           {HasValue: true},
+		"email":              {HasValue: true},
+		"password":           {HasValue: true},
+		"password-env":       {HasValue: true},
+		"invite-code":        {HasValue: true},
+		"invite-code-env":    {HasValue: true},
+		"login":              {},
+		"save":               {},
+		"pow-timeout":        {HasValue: true},
+		"pow-workers":        {HasValue: true},
+		"pow-max-difficulty": {HasValue: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(positionals) > 0 {
+		return nil, &cliError{Message: "auth register does not accept positional arguments", Status: 400, Code: exitValidation}
+	}
+	username := firstNonEmpty(last(opts["username"]), options.Username)
+	email := last(opts["email"])
+	password, cliErr := optionOrEnv(last(opts["password"]), last(opts["password-env"]), "password")
+	if cliErr != nil {
+		return nil, cliErr
+	}
+	if password == "" {
+		password = options.Password
+	}
+	inviteCode, cliErr := optionOrEnv(last(opts["invite-code"]), last(opts["invite-code-env"]), "invite code")
+	if cliErr != nil {
+		return nil, cliErr
+	}
+	if username == "" || email == "" || password == "" {
+		return nil, &cliError{Message: "auth register requires --username, --email, and --password or --password-env", Status: 400, Code: exitValidation}
+	}
+	powTimeout, cliErr := parseOptionalDuration(last(opts["pow-timeout"]), 30*time.Second)
+	if cliErr != nil {
+		return nil, cliErr
+	}
+	powWorkers, cliErr := parseOptionalInt(last(opts["pow-workers"]), minInt(maxInt(runtime.NumCPU(), 1), 4))
+	if cliErr != nil {
+		return nil, cliErr
+	}
+	powMaxDifficulty, cliErr := parseOptionalInt(last(opts["pow-max-difficulty"]), 26)
+	if cliErr != nil {
+		return nil, cliErr
+	}
+
+	challenge, cliErr := c.request("GET", "/auth/register/challenge", nil, nil, false, false)
+	if cliErr != nil {
+		return nil, cliErr
+	}
+	challengeID := stringField(challenge, "challenge_id")
+	salt := stringField(challenge, "salt")
+	difficulty := intField(challenge, "difficulty")
+	if challengeID == "" || salt == "" || difficulty <= 0 {
+		return nil, &cliError{Message: "register challenge response is invalid", Status: 500, Code: exitGeneral, Detail: challenge}
+	}
+	if difficulty > powMaxDifficulty {
+		return nil, &cliError{
+			Message: fmt.Sprintf("register PoW difficulty %d exceeds --pow-max-difficulty %d", difficulty, powMaxDifficulty),
+			Status:  400,
+			Code:    exitValidation,
+			Detail:  challenge,
+		}
+	}
+	nonce, cliErr := solveRegisterPOW(challengeID, salt, difficulty, powWorkers, powTimeout)
+	if cliErr != nil {
+		return nil, cliErr
+	}
+	payload := map[string]any{
+		"username":     username,
+		"email":        email,
+		"password":     password,
+		"invite_code":  nullableString(inviteCode),
+		"challenge_id": challengeID,
+		"nonce":        nonce,
+	}
+	result, cliErr := c.request("POST", "/auth/register", nil, payload, false, false)
+	if cliErr != nil {
+		return nil, cliErr
+	}
+	loginRequested := boolOption(opts, "login")
+	saveRequested := boolOption(opts, "save")
+	if loginRequested && stringField(result, "status") == "active" {
+		loginOptions := options
+		loginOptions.Username = username
+		loginOptions.Password = password
+		loginOptions.StoreNewToken = saveRequested
+		loginClient, err := newClient(loginOptions)
+		if err != nil {
+			return nil, err
+		}
+		loginResult, err := loginClient.login()
+		if err != nil {
+			return nil, err
+		}
+		result["login"] = loginResult
+		if saveRequested {
+			result["config_path"] = loginOptions.ConfigPath
+		}
+	}
+	return result, nil
+}
+
+func optionOrEnv(value string, envName string, label string) (string, *cliError) {
+	if value != "" {
+		return value, nil
+	}
+	if envName == "" {
+		return "", nil
+	}
+	envValue, ok := os.LookupEnv(envName)
+	if !ok {
+		return "", &cliError{Message: label + " env var is not set: " + envName, Status: 400, Code: exitValidation}
+	}
+	return envValue, nil
+}
+
+func parseOptionalDuration(value string, fallback time.Duration) (time.Duration, *cliError) {
+	if value == "" {
+		return fallback, nil
+	}
+	duration, err := parseDuration(value)
+	if err != nil {
+		return 0, &cliError{Message: err.Error(), Status: 400, Code: exitValidation}
+	}
+	return duration, nil
+}
+
+func parseOptionalInt(value string, fallback int) (int, *cliError) {
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0, &cliError{Message: "invalid positive integer: " + value, Status: 400, Code: exitValidation}
+	}
+	return parsed, nil
+}
+
+func boolOption(opts map[string][]string, key string) bool {
+	values, ok := opts[key]
+	if !ok {
+		return false
+	}
+	parsed, err := parseOptionalBool(last(values))
+	return err == nil && parsed
+}
+
+func solveRegisterPOW(challengeID string, salt string, difficulty int, workers int, timeout time.Duration) (string, *cliError) {
+	workers = maxInt(1, workers)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	result := make(chan string, 1)
+	var counter atomic.Uint64
+	for i := 0; i < workers; i++ {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				nonce := counter.Add(1) - 1
+				candidate := strconv.FormatUint(nonce, 10)
+				if registerPOWValid(challengeID, salt, candidate, difficulty) {
+					select {
+					case result <- candidate:
+					default:
+					}
+					return
+				}
+			}
+		}()
+	}
+	select {
+	case nonce := <-result:
+		return nonce, nil
+	case <-ctx.Done():
+		return "", &cliError{Message: "register PoW timed out", Status: 408, Code: exitGeneral}
+	}
+}
+
+func registerPOWValid(challengeID string, salt string, nonce string, difficulty int) bool {
+	digest := sha256.Sum256([]byte(challengeID + ":" + salt + ":" + nonce))
+	return leadingZeroBits(digest[:]) >= difficulty
+}
+
+func leadingZeroBits(data []byte) int {
+	bits := 0
+	for _, b := range data {
+		if b == 0 {
+			bits += 8
+			continue
+		}
+		for mask := byte(0x80); mask > 0; mask >>= 1 {
+			if b&mask == 0 {
+				bits++
+				continue
+			}
+			return bits
+		}
+	}
+	return bits
 }
 
 func formatDuration(value time.Duration) string {
@@ -1946,6 +2172,29 @@ func last(values []string) string {
 	return values[len(values)-1]
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func nullableString(value string) any {
 	if value == "" {
 		return nil
@@ -2066,6 +2315,20 @@ func stringField(values map[string]any, key string) string {
 		return value
 	}
 	return ""
+}
+
+func intField(values map[string]any, key string) int {
+	switch value := values[key].(type) {
+	case float64:
+		return int(value)
+	case int:
+		return value
+	case string:
+		parsed, _ := strconv.Atoi(value)
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func boolField(values map[string]any, key string) (bool, bool) {

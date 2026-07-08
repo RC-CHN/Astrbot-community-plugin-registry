@@ -15,7 +15,8 @@ if TYPE_CHECKING:
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
-        CheckConstraint("role IN ('admin', 'reviewer')", name="ck_users_role"),
+        CheckConstraint("role IN ('admin', 'reviewer', 'user')", name="ck_users_role"),
+        CheckConstraint("status IN ('pending_approval', 'active', 'disabled')", name="ck_users_status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -25,11 +26,18 @@ class User(Base):
         server_default=text("gen_random_uuid()"),
     )
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(
         String(50),
         default="reviewer",
         server_default=text("'reviewer'"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default="active",
+        server_default=text("'active'"),
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)

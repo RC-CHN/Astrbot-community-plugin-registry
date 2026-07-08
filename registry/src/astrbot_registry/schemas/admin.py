@@ -18,14 +18,48 @@ class TokenResponse(BaseModel):
 
 class UserCreate(BaseModel):
     username: str = Field(..., max_length=100)
+    email: str | None = Field(default=None, max_length=255)
     password: str = Field(..., min_length=12, max_length=1024)
-    role: Literal["admin", "reviewer"] = "reviewer"
+    role: Literal["admin", "reviewer", "user"] = "reviewer"
+    status: Literal["pending_approval", "active", "disabled"] = "active"
 
 
 class UserResponse(BaseModel):
     id: str
     username: str
+    email: str | None = None
     role: str
+    status: str
+    is_active: bool = True
+    created_at: datetime | None = None
+
+
+class UserListResponse(BaseModel):
+    items: list[UserResponse]
+    total: int
+
+
+class InviteCreate(BaseModel):
+    code: str | None = Field(default=None, max_length=255)
+    max_uses: int = Field(default=1, ge=1, le=1000)
+    expires_at: datetime | None = None
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class InviteResponse(BaseModel):
+    id: str
+    code: str | None = None
+    status: str
+    max_uses: int
+    used_count: int
+    expires_at: datetime | None = None
+    note: str | None = None
+    created_at: datetime | None = None
+
+
+class InviteListResponse(BaseModel):
+    items: list[InviteResponse]
+    total: int
 
 
 class PluginCreateRequest(BaseModel):

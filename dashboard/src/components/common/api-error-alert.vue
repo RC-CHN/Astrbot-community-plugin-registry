@@ -1,5 +1,5 @@
 <template>
-  <n-alert v-if="message" type="error" :bordered="false">
+  <n-alert v-if="message" type="error" :bordered="false" class="api-error-alert">
     {{ message }}
   </n-alert>
 </template>
@@ -15,3 +15,9 @@ const props = defineProps<{
 
 const message = computed(() => (props.error ? getErrorMessage(props.error) : ''))
 </script>
+
+<style scoped>
+.api-error-alert {
+  white-space: pre-line;
+}
+</style>

@@ -653,6 +653,70 @@ func TestPluginBuildAllowsMetadataVersionDefault(t *testing.T) {
 	}
 }
 
+func TestAuthRegisterSolvesPOWAndSubmits(t *testing.T) {
+	requests := []string{}
+	var body map[string]any
+	challengeID := "challenge-1"
+	salt := "salt-1"
+	difficulty := 8
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/auth/register/challenge":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"challenge_id": challengeID,
+				"salt":         salt,
+				"difficulty":   difficulty,
+				"algorithm":    "sha256-leading-zero-bits",
+				"expires_at":   "2026-07-08T12:00:00Z",
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/register":
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			nonce, _ := body["nonce"].(string)
+			if !registerPOWValid(challengeID, salt, nonce, difficulty) {
+				t.Fatalf("invalid nonce: %q", nonce)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status":  "active",
+				"user_id": "user-1",
+				"message": "registered",
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	code, stdout, stderr := runForTest([]string{
+		"auth", "register",
+		"--username", "alice",
+		"--email", "alice@example.com",
+		"--password", "strong-password",
+		"--invite-code", "invite-1",
+		"--pow-timeout", "5s",
+		"--pow-workers", "2",
+		"--server-url", server.URL,
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if strings.Join(requests, ",") != "GET /api/v1/auth/register/challenge,POST /api/v1/auth/register" {
+		t.Fatalf("requests=%v", requests)
+	}
+	if body["username"] != "alice" ||
+		body["email"] != "alice@example.com" ||
+		body["password"] != "strong-password" ||
+		body["invite_code"] != "invite-1" ||
+		body["challenge_id"] != challengeID {
+		t.Fatalf("unexpected body: %v", body)
+	}
+	if !strings.Contains(stdout, `"status": "active"`) {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
 func TestVersionDeleteSendsRequest(t *testing.T) {
 	pluginID := "11111111-1111-1111-1111-111111111111"
 	versionID := "22222222-2222-2222-2222-222222222222"

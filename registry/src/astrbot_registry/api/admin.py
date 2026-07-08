@@ -23,11 +23,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..api.deps import get_current_admin, get_current_reviewer, get_db
 from ..config import settings
 from ..database import async_session
-from ..models import Plugin, PluginVersion, User, WebhookEvent
+from ..models import Plugin, PluginVersion, User, UserInvite, WebhookEvent
 from ..schemas.admin import (
     ArtifactFileResponse,
     ArtifactTreeResponse,
     LoginRequest,
+    InviteCreate,
+    InviteListResponse,
+    InviteResponse,
     AdminStatsResponse,
     ConfigUpdate,
     PluginDetail,
@@ -46,6 +49,7 @@ from ..schemas.admin import (
     TaskRetryResponse,
     TokenResponse,
     UserCreate,
+    UserListResponse,
     UserResponse,
     VersionCreate,
     VersionSubmitResponse,
@@ -55,10 +59,11 @@ from ..schemas.admin import (
     WorkerTaskListResponse,
     WorkerTaskSummary,
 )
+from ..schemas.submission import SubmissionDecisionRequest, SubmissionListResponse, SubmissionResponse
 from ..services.auth_service import authenticate_user, create_access_token, get_password_hash
 from ..services.artifact_service import ArtifactError, list_artifact_tree, read_artifact_file
 from ..services.build_service import build_from_repo
-from ..services.config_service import list_config_response, update_config
+from ..services.config_service import ConfigValidationError, list_config_response, update_config
 from ..services.plugin_service import (
     create_plugin,
     create_version_from_upload,
@@ -75,6 +80,7 @@ from ..services.plugin_service import (
     update_plugin,
 )
 from ..services.registry_service import refresh_cache
+from ..services.registration_service import create_invite
 from ..services.repo_inspection_service import inspect_git_repo, resolve_git_ref
 from ..services.runtime_config import (
     runtime_git_allowed_hosts,
@@ -86,10 +92,18 @@ from ..services.runtime_config import (
     runtime_webhook_secret,
 )
 from ..services.scan_service import (
+    effective_build_status,
     mark_scan_pending,
     mark_scan_skipped,
     scan_version,
     version_scan_summary,
+)
+from ..services.submission_service import (
+    SubmissionError,
+    get_submission_request,
+    list_submission_requests,
+    mark_submission_decision,
+    submission_to_dict,
 )
 from ..services.scan_providers import get_scan_provider_registry
 from ..services.security_service import login_rate_limit_keys, login_rate_limiter
@@ -114,9 +128,11 @@ admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 def _version_summary(version, required_scan_providers: list[str] | None = None) -> dict:
-    scan = version_scan_summary(version)
-    if scan is not None and required_scan_providers is not None:
+    scan = version_scan_summary(version, providers=required_scan_providers)
+    if required_scan_providers is not None:
+        scan = scan or {"scanned_at": None}
         scan["required_providers"] = required_scan_providers
+    build_status = effective_build_status(version, required_scan_providers)
     return {
         "id": str(version.id),
         "version": version.version,
@@ -124,7 +140,7 @@ def _version_summary(version, required_scan_providers: list[str] | None = None) 
         "source_ref": version.source_ref,
         "commit_sha": version.commit_sha,
         "changelog": version.changelog,
-        "build_status": version.build_status,
+        "build_status": build_status,
         "build_log": version.build_log,
         "version_status": version.version_status,
         "is_latest": version.is_latest,
@@ -148,6 +164,31 @@ def _plugin_summary(plugin) -> dict:
         "version_count": len(plugin.versions),
         "created_at": plugin.created_at,
         "updated_at": plugin.updated_at,
+    }
+
+
+def _user_response(user: User) -> dict:
+    return {
+        "id": str(user.id),
+        "username": user.username,
+        "email": user.email,
+        "role": user.role,
+        "status": user.status,
+        "is_active": user.is_active,
+        "created_at": user.created_at,
+    }
+
+
+def _invite_response(invite: UserInvite) -> dict:
+    return {
+        "id": str(invite.id),
+        "code": None,
+        "status": invite.status,
+        "max_uses": invite.max_uses,
+        "used_count": invite.used_count,
+        "expires_at": invite.expires_at,
+        "note": invite.note,
+        "created_at": invite.created_at,
     }
 
 
@@ -280,8 +321,11 @@ async def _process_uploaded_zip(
 async def create_user(db: AsyncSession, data: UserCreate) -> User:
     user = User(
         username=data.username,
+        email=data.email.strip().lower() if data.email else None,
         password_hash=get_password_hash(data.password),
         role=data.role,
+        status=data.status,
+        is_active=data.status != "disabled",
     )
     db.add(user)
     await db.commit()
@@ -338,7 +382,7 @@ async def bootstrap_user(
             detail="Bootstrap already completed",
         )
     user = await create_user(db, data)
-    return {"id": str(user.id), "username": user.username, "role": user.role}
+    return _user_response(user)
 
 
 @admin_router.post("/users", response_model=UserResponse)
@@ -348,7 +392,204 @@ async def create_user_endpoint(
     current_user: User = Depends(get_current_admin),
 ) -> dict:
     user = await create_user(db, data)
-    return {"id": str(user.id), "username": user.username, "role": user.role}
+    return _user_response(user)
+
+
+@admin_router.get("/users", response_model=UserListResponse)
+async def list_users_endpoint(
+    role: str | None = None,
+    status: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    statement = select(User).order_by(User.created_at.desc())
+    if role:
+        statement = statement.where(User.role == role)
+    if status:
+        statement = statement.where(User.status == status)
+    result = await db.execute(statement)
+    users = list(result.scalars().all())
+    return {"items": [_user_response(user) for user in users], "total": len(users)}
+
+
+@admin_router.post("/users/{user_id}/approve", response_model=UserResponse)
+async def approve_user_endpoint(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.status = "active"
+    user.is_active = True
+    await db.commit()
+    await db.refresh(user)
+    return _user_response(user)
+
+
+@admin_router.post("/users/{user_id}/disable", response_model=UserResponse)
+async def disable_user_endpoint(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.status = "disabled"
+    user.is_active = False
+    await db.commit()
+    await db.refresh(user)
+    return _user_response(user)
+
+
+@admin_router.get("/invites", response_model=InviteListResponse)
+async def list_invites_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    result = await db.execute(select(UserInvite).order_by(UserInvite.created_at.desc()))
+    invites = list(result.scalars().all())
+    return {"items": [_invite_response(invite) for invite in invites], "total": len(invites)}
+
+
+@admin_router.post("/invites", response_model=InviteResponse)
+async def create_invite_endpoint(
+    data: InviteCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    invite, code = await create_invite(
+        db,
+        created_by=current_user.id,
+        code=data.code,
+        max_uses=data.max_uses,
+        expires_at=data.expires_at,
+        note=data.note,
+    )
+    response = _invite_response(invite)
+    response["code"] = code
+    return response
+
+
+@admin_router.post("/invites/{invite_id}/disable", response_model=InviteResponse)
+async def disable_invite_endpoint(
+    invite_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    invite = await db.get(UserInvite, invite_id)
+    if invite is None:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    invite.status = "disabled"
+    await db.commit()
+    await db.refresh(invite)
+    return _invite_response(invite)
+
+
+@admin_router.get("/submissions", response_model=SubmissionListResponse)
+async def list_submissions_endpoint(
+    status: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    rows = await list_submission_requests(db, status=status)
+    return {"items": [submission_to_dict(item, username) for item, username in rows], "total": len(rows)}
+
+
+@admin_router.get("/submissions/{submission_id}", response_model=SubmissionResponse)
+async def get_submission_endpoint(
+    submission_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    row = await get_submission_request(db, submission_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Submission request not found")
+    submission, username = row
+    return submission_to_dict(submission, username)
+
+
+@admin_router.post("/submissions/{submission_id}/accept", response_model=SubmissionResponse)
+async def accept_submission_endpoint(
+    submission_id: uuid.UUID,
+    request: SubmissionDecisionRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    row = await get_submission_request(db, submission_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Submission request not found")
+    submission, username = row
+    try:
+        submission = await mark_submission_decision(
+            db,
+            submission,
+            status="accepted",
+            admin_message=request.admin_message,
+            accepted_by=current_user.id,
+        )
+    except SubmissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _enqueue_or_fallback(
+        background_tasks,
+        "submit",
+        {
+            "repo_url": submission.repo_url,
+            "version": None,
+            "ref": submission.ref if submission.ref_type != "default" else None,
+            "credential_id": None,
+            "temporary_token": None,
+            "changelog": request.admin_message or "",
+            "user_id": str(current_user.id),
+        },
+        db,
+    )
+    return submission_to_dict(submission, username)
+
+
+@admin_router.post("/submissions/{submission_id}/reject", response_model=SubmissionResponse)
+async def reject_submission_endpoint(
+    submission_id: uuid.UUID,
+    request: SubmissionDecisionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    return await _mark_submission_terminal(db, submission_id, "rejected", request.admin_message)
+
+
+@admin_router.post("/submissions/{submission_id}/duplicate", response_model=SubmissionResponse)
+async def duplicate_submission_endpoint(
+    submission_id: uuid.UUID,
+    request: SubmissionDecisionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    return await _mark_submission_terminal(db, submission_id, "duplicate", request.admin_message)
+
+
+async def _mark_submission_terminal(
+    db: AsyncSession,
+    submission_id: uuid.UUID,
+    status_value: str,
+    admin_message: str | None,
+) -> dict:
+    row = await get_submission_request(db, submission_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Submission request not found")
+    submission, username = row
+    try:
+        submission = await mark_submission_decision(
+            db,
+            submission,
+            status=status_value,
+            admin_message=admin_message,
+        )
+    except SubmissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return submission_to_dict(submission, username)
 
 
 @admin_router.get("/plugins", response_model=PluginListResponse)
@@ -785,10 +1026,13 @@ async def skip_scan_provider(
 
 
 async def _scan_providers(db: AsyncSession, provider: str) -> list[str]:
+    enabled = await runtime_scan_enabled_providers(db)
     if provider == "all":
-        return await runtime_scan_enabled_providers(db)
-    if provider in get_scan_provider_registry().names:
+        return enabled
+    if provider in enabled:
         return [provider]
+    if provider in get_scan_provider_registry().names:
+        raise HTTPException(status_code=400, detail="Scan provider is disabled")
     raise HTTPException(status_code=400, detail="Invalid scan provider")
 
 
@@ -896,7 +1140,10 @@ async def update_config_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin),
 ) -> dict:
-    return await update_config(db, request.values)
+    try:
+        return await update_config(db, request.values)
+    except ConfigValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @admin_router.post("/cache/refresh", response_model=StatusResponse)

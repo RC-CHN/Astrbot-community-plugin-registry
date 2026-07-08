@@ -14,6 +14,8 @@ export const routes: RouteRecordRaw[] = [
     component: AppLayout,
     children: [
       { path: '', redirect: '/plugins' },
+      { path: 'submissions', name: 'submissions', component: () => import('@/pages/submissions/index.vue') },
+      { path: 'submission-requests', name: 'submission-requests', component: () => import('@/pages/submission-requests/index.vue') },
       { path: 'plugins', name: 'plugins', component: () => import('@/pages/plugins/index.vue') },
       { path: 'plugins/:id', name: 'plugin-detail', component: () => import('@/pages/plugins/detail.vue') },
       { path: 'reviews', name: 'reviews', component: () => import('@/pages/reviews/index.vue') },

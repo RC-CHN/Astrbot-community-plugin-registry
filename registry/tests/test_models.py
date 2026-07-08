@@ -4,10 +4,12 @@ from astrbot_registry.models import (
     Plugin,
     PluginVersion,
     PluginVersionStat,
+    PluginSubmissionRequest,
     ReviewProviderResult,
     SecurityScan,
     SystemConfig,
     WorkerTask,
+    UserInvite,
     User,
     WebhookEvent,
 )
@@ -24,9 +26,32 @@ def test_status_and_role_constraints_are_declared() -> None:
     assert "ck_versions_build_status" in constraint_names
     assert "ck_versions_version_status" in constraint_names
     assert "ck_users_role" in constraint_names
+    assert "ck_users_status" in constraint_names
     assert "ck_worker_tasks_status" in {constraint.name for constraint in WorkerTask.__table__.constraints}
     assert SystemConfig.__tablename__ == "system_config"
     assert WebhookEvent.__tablename__ == "webhook_events"
+    assert UserInvite.__tablename__ == "user_invites"
+    assert PluginSubmissionRequest.__tablename__ == "plugin_submission_requests"
+
+
+def test_user_invite_constraints_are_declared() -> None:
+    constraint_names = {constraint.name for constraint in UserInvite.__table__.constraints}
+
+    assert "ck_user_invites_status" in constraint_names
+    assert "ck_user_invites_max_uses_positive" in constraint_names
+    assert "ck_user_invites_used_count_nonnegative" in constraint_names
+    assert "ck_user_invites_used_count_lte_max" in constraint_names
+
+
+def test_submission_request_constraints_and_indexes_are_declared() -> None:
+    constraint_names = {constraint.name for constraint in PluginSubmissionRequest.__table__.constraints}
+    index_names = {index.name for index in PluginSubmissionRequest.__table__.indexes}
+
+    assert "ck_plugin_submission_requests_status" in constraint_names
+    assert "ck_plugin_submission_requests_ref_type" in constraint_names
+    assert "idx_submission_requests_status_created" in index_names
+    assert "idx_submission_requests_user_created" in index_names
+    assert "idx_submission_requests_repo" in index_names
 
 
 def test_worker_task_indexes_are_declared() -> None:

@@ -34,3 +34,24 @@ def test_duplicate_metadata_version_migration_changes_version_identity() -> None
     assert "idx_versions_plugin_version" in content
     assert "idx_versions_git_commit_per_plugin" in content
     assert "source_type = 'git_auto' AND commit_sha ~ '^[0-9a-fA-F]{40,64}$'" in content
+
+
+def test_user_registration_migration_adds_user_state_and_invites() -> None:
+    migration = Path(__file__).resolve().parents[1] / "alembic/versions/0006_user_registration.py"
+    content = migration.read_text(encoding="utf-8")
+
+    assert "user_invites" in content
+    assert "ck_users_status" in content
+    assert "role IN ('admin', 'reviewer', 'user')" in content
+    assert "uq_users_email" in content
+
+
+def test_submission_request_migration_adds_request_table() -> None:
+    migration = Path(__file__).resolve().parents[1] / "alembic/versions/0007_submission_requests.py"
+    content = migration.read_text(encoding="utf-8")
+
+    assert "plugin_submission_requests" in content
+    assert "user_message" in content
+    assert "admin_message" in content
+    assert "need_info" not in content
+    assert "idx_submission_requests_status_created" in content

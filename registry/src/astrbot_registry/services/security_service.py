@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import ipaddress
+import hashlib
 import threading
 import time
 from dataclasses import dataclass
@@ -129,11 +130,48 @@ login_rate_limiter = InMemoryRateLimiter(
     block_seconds=settings.login_rate_limit_block_seconds,
 )
 
+registration_challenge_rate_limiter = InMemoryRateLimiter(
+    attempts=settings.registration_challenge_rate_limit_attempts,
+    window_seconds=settings.registration_challenge_rate_limit_window_seconds,
+    block_seconds=settings.registration_challenge_rate_limit_block_seconds,
+)
+
+registration_submit_rate_limiter = InMemoryRateLimiter(
+    attempts=settings.registration_submit_rate_limit_attempts,
+    window_seconds=settings.registration_submit_rate_limit_window_seconds,
+    block_seconds=settings.registration_submit_rate_limit_block_seconds,
+)
+
 
 def login_rate_limit_keys(request: Request, username: str) -> list[str]:
     username_key = username.strip().lower() or "<empty>"
     client_ip = _client_ip(request)
     return [f"user:{username_key}", f"ip:{client_ip}"]
+
+
+def registration_challenge_rate_limit_key(request: Request) -> str:
+    return f"register-challenge:ip:{_client_ip(request)}"
+
+
+def registration_submit_rate_limit_keys(
+    request: Request,
+    *,
+    username: str,
+    email: str,
+    invite_code: str | None = None,
+) -> list[str]:
+    keys = [
+        f"register-submit:ip:{_client_ip(request)}",
+        f"register-submit:username:{_hash_key(username.strip().lower())}",
+        f"register-submit:email:{_hash_key(email.strip().lower())}",
+    ]
+    if invite_code:
+        keys.append(f"register-submit:invite:{_hash_key(invite_code.strip())}")
+    return keys
+
+
+def _hash_key(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _client_ip(request: Request, app_settings: Settings = settings) -> str:

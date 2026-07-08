@@ -29,6 +29,7 @@ The CLI covers the administrator workflows needed to operate AstrBot Community P
 | Username/password login | Supported | Used when no token is available. |
 | 401 retry | Supported | Retries login once when credentials are available. |
 | `auth login` | Supported | Prints token response. |
+| `auth register` | Supported | Public user registration with local SHA-256 PoW solving; optional login/save after active registration. |
 | JSON output | Supported | Default output is indented JSON. |
 | Table output | Supported | Generic table renderer for maps/lists. |
 | Structured errors | Supported | JSON on stderr with `error`, `code`, optional `status` and `detail`. |
@@ -56,6 +57,7 @@ The CLI covers the administrator workflows needed to operate AstrBot Community P
 acprctl
 ├── configure
 ├── auth login
+├── auth register
 ├── config list
 ├── config set
 ├── config providers list

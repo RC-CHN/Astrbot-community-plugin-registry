@@ -14,6 +14,7 @@ from ..models import SystemConfig
 RUNTIME_CONFIG_CACHE_KEY = "runtime_config"
 RUNTIME_CONFIG_CACHE_TTL_SECONDS = 30
 KNOWN_SCAN_PROVIDER_ORDER = ("clamav", "virustotal", "llm_agent")
+REGISTRATION_MODES = {"disabled", "invite", "approval"}
 
 T = TypeVar("T")
 
@@ -111,6 +112,18 @@ async def runtime_github_token(db: AsyncSession) -> str:
 
 async def runtime_git_allowed_hosts(db: AsyncSession) -> list[str]:
     return await get_runtime_value(db, "GIT_ALLOWED_HOSTS", settings.git_allowed_hosts, list)
+
+
+async def runtime_registration_mode(db: AsyncSession) -> str:
+    mode = await get_runtime_value(db, "USER_REGISTRATION_MODE", settings.user_registration_mode, str)
+    return normalize_registration_mode(mode)
+
+
+def normalize_registration_mode(mode: str) -> str:
+    normalized = mode.strip().lower()
+    if normalized not in REGISTRATION_MODES:
+        return "disabled"
+    return normalized
 
 
 async def runtime_scan_defaults(db: AsyncSession) -> dict[str, Any]:

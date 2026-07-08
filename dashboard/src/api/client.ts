@@ -53,7 +53,12 @@ async function normalizeError(response: Response): Promise<ApiError> {
   try {
     detail = await response.json()
     if (detail && typeof detail === 'object' && 'detail' in detail) {
-      message = String((detail as { detail: unknown }).detail)
+      const payloadDetail = (detail as { detail: unknown }).detail
+      if (typeof payloadDetail === 'string') {
+        message = payloadDetail
+      } else if (Array.isArray(payloadDetail)) {
+        message = '请求参数不符合要求'
+      }
     }
   } catch {
     message = await response.text()

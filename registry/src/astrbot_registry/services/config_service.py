@@ -6,6 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..models import SystemConfig
 from .runtime_config import clear_runtime_config_cache
+from .runtime_config import REGISTRATION_MODES, normalize_registration_mode
+
+
+class ConfigValidationError(ValueError):
+    """Raised when a runtime configuration update is invalid."""
 
 SENSITIVE_CONFIG_KEYS = {
     "GITHUB_WEBHOOK_SECRET",
@@ -32,6 +37,7 @@ EFFECTIVE_CONFIG_DEFAULTS = {
     "GIT_MAX_REPO_SIZE_KB": settings.git_max_repo_size_kb,
     "GIT_HTTP_PROXY": settings.git_http_proxy,
     "GITHUB_TOKEN": settings.github_token,
+    "USER_REGISTRATION_MODE": settings.user_registration_mode,
     "SCAN_ENABLED_PROVIDERS": ",".join(settings.scan_enabled_providers),
     "SCAN_PASS_WHEN_UNCONFIGURED": settings.scan_pass_when_unconfigured,
     "SCAN_UNCONFIGURED_MESSAGE": settings.scan_unconfigured_message,
@@ -146,6 +152,7 @@ def _mask_url_secret(value: str) -> str:
 
 async def update_config(db: AsyncSession, values: dict[str, str]) -> dict:
     for key, value in values.items():
+        value = _normalize_config_value(key, value)
         item = await db.get(SystemConfig, key)
         if value == "":
             if item is not None:
@@ -158,3 +165,14 @@ async def update_config(db: AsyncSession, values: dict[str, str]) -> dict:
     await db.commit()
     await clear_runtime_config_cache()
     return await list_config_response(db)
+
+
+def _normalize_config_value(key: str, value: str) -> str:
+    if key == "USER_REGISTRATION_MODE" and value:
+        normalized = normalize_registration_mode(value)
+        if normalized not in REGISTRATION_MODES or normalized != value.strip().lower():
+            raise ConfigValidationError(
+                "USER_REGISTRATION_MODE must be one of: disabled, invite, approval"
+            )
+        return normalized
+    return value
