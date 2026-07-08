@@ -12,6 +12,7 @@ The CLI covers the administrator workflows needed to operate AstrBot Community P
 - structured JSON output and structured stderr errors
 - plugin key and UUID references
 - async waits for submit/build/scan workflows
+- task and worker observability for queue troubleshooting
 - multipart upload for plugin and version zip files
 - plugin, version, review, config, cache, and stats administration
 
@@ -45,6 +46,8 @@ The CLI covers the administrator workflows needed to operate AstrBot Community P
 | `config providers` | Supported | Lists, enables, and disables scan providers by editing `SCAN_ENABLED_PROVIDERS` safely. |
 | Cache refresh | Supported | Refreshes public registry cache. |
 | Stats | Supported | Shows total and pending plugin counts. |
+| Task list/show/retry | Supported | Inspects persisted worker task records and retries terminal tasks. |
+| Worker status | Supported | Shows Redis queue length, delayed/dead-letter length, active worker heartbeats, and task counts. |
 
 ## Command Coverage
 
@@ -59,6 +62,10 @@ acprctl
 ├── config providers disable
 ├── cache refresh
 ├── stats
+├── task list
+├── task show
+├── task retry
+├── worker status
 ├── plugin list
 ├── plugin show
 ├── plugin submit
@@ -89,4 +96,5 @@ acprctl
 - Wait success for build workflows is based on a version reaching `build_status=success`.
 - Wait success for scan workflows requires selected scan providers to reach passed or skipped results. For `--provider all`, the CLI waits for providers present in the live version detail response.
 - `review publish` and `review skip` use the backend atomic publish endpoint.
+- Task records start from the server version that introduced worker task observability; old Redis-only tasks may not have persisted history.
 - Public plugin search and user management are outside the current administrator CLI scope.

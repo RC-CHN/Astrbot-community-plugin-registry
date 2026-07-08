@@ -10,6 +10,8 @@ Start every session with:
 acprctl stats
 acprctl plugin list --page-size 20
 acprctl review list
+acprctl worker status
+acprctl task list --page-size 20
 acprctl config list
 ```
 
@@ -123,6 +125,44 @@ acprctl plugin version scan skip astrbot-plugin-example \
 ```
 
 Provider names are `clamav`, `virustotal`, `llm_agent`, and `all`.
+
+## Task and Worker Inspection
+
+Use this when a submit, build, scan, webhook, or VirusTotal poll appears stuck.
+
+Check worker and Redis queue state:
+
+```bash
+acprctl --format json worker status
+```
+
+Inspect recent tasks:
+
+```bash
+acprctl --format json task list --page-size 50
+```
+
+Filter by status or type:
+
+```bash
+acprctl --format json task list --status dead
+acprctl --format json task list --type scan --status running
+acprctl --format json task list --type virustotal_poll --status delayed
+```
+
+Show a specific task:
+
+```bash
+acprctl --format json task show <task-id>
+```
+
+Retry only after inspecting the previous error and confirming the root cause is fixed:
+
+```bash
+acprctl task retry <task-id>
+```
+
+Use task records to locate the operational blocker, then inspect the related plugin/version with `plugin show` when the task references a plugin or version id.
 
 ## Review and Publish
 

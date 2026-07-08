@@ -1,6 +1,6 @@
 ---
 name: acprctl
-description: Use this skill when the user wants Codex to administer, validate, troubleshoot, or document AstrBot Community Plugin Registry using a prebuilt acprctl binary. Trigger for connecting to a registry, plugin submission/upload/build/scan/review/publish, runtime config, cache refresh, wait behavior, GitHub webhook setup, production health checks, or agent-operated registry maintenance from an installed CLI.
+description: Use this skill when the user wants Codex to administer, validate, troubleshoot, or document AstrBot Community Plugin Registry using a prebuilt acprctl binary. Trigger for connecting to a registry, plugin submission/upload/build/scan/review/publish, task and worker observability, runtime config, cache refresh, wait behavior, GitHub webhook setup, production health checks, or agent-operated registry maintenance from an installed CLI.
 ---
 
 # acprctl
@@ -22,7 +22,7 @@ Use the installed CLI and the live registry service as the operating surface.
 Load only the reference needed for the task:
 
 - `references/command-reference.md`: exact command syntax, flags, config precedence, output, and exit codes.
-- `references/operations-workflows.md`: step-by-step workflows for submit, upload, build, scan, review, publish, config, and cache work.
+- `references/operations-workflows.md`: step-by-step workflows for submit, upload, build, scan, review, publish, task/worker inspection, config, and cache work.
 - `references/deployment-and-connection.md`: release bundle contents, binary checks, server URL rules, credential setup, runtime configuration, and boundaries when the agent lacks host/source access.
 - `references/scans-and-webhooks.md`: ClamAV/VirusTotal/LLM scan configuration, scan waits, GitHub webhook setup, and webhook verification.
 - `references/validation-troubleshooting.md`: service validation, production health checks, common failures, and recovery steps.

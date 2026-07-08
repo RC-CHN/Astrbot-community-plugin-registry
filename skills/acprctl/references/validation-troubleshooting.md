@@ -62,6 +62,8 @@ Then run:
 ```bash
 acprctl --format json plugin list --page-size 5
 acprctl --format json review list
+acprctl --format json worker status
+acprctl --format json task list --page-size 20
 acprctl --format json config list
 ```
 
@@ -177,6 +179,8 @@ Use this block before changing anything:
 acprctl --format json stats
 acprctl --format json plugin list --page-size 20
 acprctl --format json review list --page-size 20
+acprctl --format json worker status
+acprctl --format json task list --page-size 20
 acprctl --format json config list
 ```
 
@@ -199,6 +203,8 @@ Immediate inspection:
 ```bash
 acprctl --format json plugin show <plugin-key-or-id>
 acprctl --format json plugin version list <plugin-key-or-id>
+acprctl --format json worker status
+acprctl --format json task list --page-size 50
 acprctl --format json config list
 ```
 
@@ -208,6 +214,9 @@ Interpretation:
 - `build_status=failed`: inspect `build_log` in `plugin show`.
 - scan provider `mode=pending`: scan task has not completed; VirusTotal may be waiting on asynchronous remote analysis polling.
 - scan provider `mode=error`: inspect the provider message.
+- `worker status` with no active workers: the worker process is not heartbeating or cannot reach Redis.
+- `task list --status dead`: inspect `last_error`, fix the root cause, then retry the task.
+- `task list --status delayed --type virustotal_poll`: VirusTotal polling is scheduled for `next_run_at`.
 
 Recovery:
 
@@ -216,7 +225,13 @@ acprctl plugin build <plugin-key-or-id> --version <version> --wait --wait-timeou
 acprctl plugin scan <plugin-key-or-id> --version <version> --wait --wait-timeout 600s
 ```
 
-If the status never changes, ask the operator with host access to check worker/service logs and queue health.
+If a dead task exists and the cause is fixed:
+
+```bash
+acprctl task retry <task-id>
+```
+
+If the status never changes and there are no active workers, ask the operator with host access to restart or scale the worker process.
 
 ## Build Failures
 

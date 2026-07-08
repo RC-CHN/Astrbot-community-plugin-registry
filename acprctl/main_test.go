@@ -301,6 +301,72 @@ func TestConfigProvidersEnablePreservesExistingProviders(t *testing.T) {
 	}
 }
 
+func TestTaskListSendsFilters(t *testing.T) {
+	var seenQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/admin/tasks" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		seenQuery = r.URL.RawQuery
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []map[string]any{{
+				"id":        "task-1",
+				"task_type": "scan",
+				"status":    "dead",
+			}},
+			"total": 1, "page": 1, "page_size": 20,
+		})
+	}))
+	defer server.Close()
+
+	code, stdout, stderr := runForTest([]string{
+		"task", "list",
+		"--status", "dead",
+		"--type", "scan",
+		"--page-size", "20",
+		"--server-url", server.URL,
+		"--token", "token",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(seenQuery, "status=dead") || !strings.Contains(seenQuery, "type=scan") {
+		t.Fatalf("unexpected query: %s", seenQuery)
+	}
+	if !strings.Contains(stdout, `"task_type": "scan"`) {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestWorkerStatusCommand(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/admin/worker/status" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"redis_connected":    true,
+			"queue_length":       1,
+			"delayed_length":     0,
+			"dead_letter_length": 0,
+			"active_workers":     []map[string]any{},
+			"tasks_by_status":    map[string]any{"queued": 1},
+		})
+	}))
+	defer server.Close()
+
+	code, stdout, stderr := runForTest([]string{
+		"worker", "status",
+		"--server-url", server.URL,
+		"--token", "token",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"queue_length": 1`) {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
 func TestConfigProvidersDisableRemovesOnlySelectedProvider(t *testing.T) {
 	var putBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

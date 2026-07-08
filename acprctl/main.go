@@ -149,6 +149,8 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  stats")
 	fmt.Fprintln(w, "  plugin list|show|submit|upload|update|delete|set-status|build|scan|version")
 	fmt.Fprintln(w, "  review list|approve|publish|skip|disable|delete")
+	fmt.Fprintln(w, "  task list|show|retry")
+	fmt.Fprintln(w, "  worker status")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "scan providers: clamav|virustotal|llm_agent|all")
 }
@@ -676,6 +678,10 @@ func dispatch(args []string, options runtimeOptions, c *client) (any, *cliError)
 		return dispatchPlugin(args[1:], options, c)
 	case "review":
 		return dispatchReview(args[1:], options, c)
+	case "task":
+		return dispatchTask(args[1:], c)
+	case "worker":
+		return dispatchWorker(args[1:], c)
 	}
 	return nil, &cliError{Message: "unknown command: " + strings.Join(args, " "), Status: 400, Code: exitValidation}
 }
@@ -793,6 +799,55 @@ func dispatchConfigProviders(args []string, c *client) (any, *cliError) {
 		return updateConfigProviders(c, args[0], providers)
 	}
 	return nil, &cliError{Message: "unknown config providers command: " + args[0], Status: 400, Code: exitValidation}
+}
+
+func dispatchTask(args []string, c *client) (any, *cliError) {
+	if len(args) == 0 {
+		return nil, &cliError{Message: "task command is required", Status: 400, Code: exitValidation}
+	}
+	switch args[0] {
+	case "list":
+		opts, positionals, err := parseLocalOptions(args[1:], map[string]optionSpec{
+			"status":     {HasValue: true},
+			"type":       {HasValue: true},
+			"plugin-id":  {HasValue: true},
+			"version-id": {HasValue: true},
+			"page":       {HasValue: true},
+			"page-size":  {HasValue: true},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(positionals) > 0 {
+			return nil, &cliError{Message: "task list does not accept positional arguments", Status: 400, Code: exitValidation}
+		}
+		query := url.Values{}
+		addQuery(query, "status", last(opts["status"]))
+		addQuery(query, "type", last(opts["type"]))
+		addQuery(query, "plugin_id", last(opts["plugin-id"]))
+		addQuery(query, "version_id", last(opts["version-id"]))
+		addQueryDefault(query, "page", last(opts["page"]), "1")
+		addQueryDefault(query, "page_size", last(opts["page-size"]), "20")
+		return c.request("GET", "/admin/tasks", query, nil, true, true)
+	case "show":
+		if len(args) != 2 {
+			return nil, &cliError{Message: "task show requires <task-id>", Status: 400, Code: exitValidation}
+		}
+		return c.request("GET", "/admin/tasks/"+args[1], nil, nil, true, true)
+	case "retry":
+		if len(args) != 2 {
+			return nil, &cliError{Message: "task retry requires <task-id>", Status: 400, Code: exitValidation}
+		}
+		return c.request("POST", "/admin/tasks/"+args[1]+"/retry", nil, nil, true, true)
+	}
+	return nil, &cliError{Message: "unknown task command: " + args[0], Status: 400, Code: exitValidation}
+}
+
+func dispatchWorker(args []string, c *client) (any, *cliError) {
+	if len(args) != 1 || args[0] != "status" {
+		return nil, &cliError{Message: "worker command must be: worker status", Status: 400, Code: exitValidation}
+	}
+	return c.request("GET", "/admin/worker/status", nil, nil, true, true)
 }
 
 func updateConfigProviders(c *client, action string, providers []string) (any, *cliError) {

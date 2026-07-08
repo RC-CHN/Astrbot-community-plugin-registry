@@ -89,6 +89,10 @@ acprctl
 ├── config providers disable
 ├── cache refresh
 ├── stats
+├── task list
+├── task show
+├── task retry
+├── worker status
 ├── plugin list
 ├── plugin show
 ├── plugin submit
@@ -273,6 +277,40 @@ acprctl config set --key PUBLIC_CACHE_MAX_AGE --value ''
 Sensitive config values are redacted in `config list`; use `sensitive_status` to see whether they are configured.
 
 `config providers` manages `SCAN_ENABLED_PROVIDERS` without requiring the caller to rewrite the full comma-separated value. Supported providers are `virustotal`, `llm_agent`, and `clamav`.
+
+## Task and Worker Observability
+
+Inspect queue and worker state:
+
+```bash
+acprctl worker status
+```
+
+List persisted worker tasks:
+
+```bash
+acprctl task list \
+  [--status queued|delayed|running|retrying|succeeded|failed|dead|cancelled] \
+  [--type submit|build|scan|virustotal_poll] \
+  [--plugin-id <uuid>] \
+  [--version-id <uuid>] \
+  [--page 1] \
+  [--page-size 20]
+```
+
+Show one task:
+
+```bash
+acprctl task show <task-id>
+```
+
+Retry a failed, cancelled, or dead task:
+
+```bash
+acprctl task retry <task-id>
+```
+
+Task records are an operational view of queued work. `task retry` creates a new queued task from the original task payload and leaves the old task as history.
 
 ## Output and Exit Codes
 
