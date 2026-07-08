@@ -66,6 +66,16 @@ def test_latest_uses_required_scan_provider_list() -> None:
     assert _get_latest([version], required_providers=["clamav", "virustotal"]) is None
 
 
+def test_latest_treats_disabled_provider_pending_as_non_blocking() -> None:
+    version = _version(scanned=False, build_status="scanning")
+    version.provider_results = [
+        ReviewProviderResult(provider="clamav", kind="scan", mode="real", passed=True),
+        ReviewProviderResult(provider="virustotal", kind="scan", mode="pending", passed=None),
+    ]
+
+    assert _get_latest([version], required_providers=["clamav"]) is version
+
+
 def test_registry_entry_keeps_official_shape() -> None:
     plugin = _plugin()
     version = _version(scanned=True)
@@ -79,6 +89,19 @@ def test_registry_entry_keeps_official_shape() -> None:
     assert entry["repo"] is None
     assert entry["download_url"] == "https://example.test/plugin.zip"
     assert entry["sec_scan"]["virustotal"]["pass"] is True
+
+
+def test_registry_entry_sec_scan_uses_enabled_providers() -> None:
+    plugin = _plugin()
+    version = _version(scanned=False)
+    version.provider_results = [
+        ReviewProviderResult(provider="clamav", kind="scan", mode="real", passed=True),
+        ReviewProviderResult(provider="virustotal", kind="scan", mode="pending", passed=None),
+    ]
+
+    entry = _format_entry(plugin, version, scan_providers=["clamav"])
+
+    assert entry["sec_scan"] == {"clamav": {"pass": True, "msg": None, "mode": "real"}}
 
 
 def test_canonical_registry_bytes_are_stable() -> None:

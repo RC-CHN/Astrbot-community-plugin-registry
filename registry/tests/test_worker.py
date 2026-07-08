@@ -2,6 +2,7 @@ import pytest
 import uuid
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from astrbot_registry.services.errors import ConflictError
 from astrbot_registry.services import task_queue
 from astrbot_registry.services.task_queue import create_task_envelope, enqueue_task, promote_due_tasks, requeue_task
 from astrbot_registry.worker import pop_task
@@ -91,6 +92,25 @@ async def test_requeue_task_moves_exhausted_task_to_dead_letter(monkeypatch) -> 
     assert requeued is False
     assert redis.items[0][0] == task_queue.DEAD_LETTER_QUEUE_KEY
     assert '"last_error":"boom"' in redis.items[0][1]
+
+
+@pytest.mark.asyncio
+async def test_requeue_task_does_not_retry_non_retryable_registry_error(monkeypatch) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis():
+        return redis
+
+    monkeypatch.setattr(task_queue, "get_redis", fake_get_redis)
+    task = create_task_envelope("build", {"plugin_id": "p1"}, task_id="task-1", attempts=0, max_attempts=3)
+
+    requeued = await requeue_task(task, ConflictError("duplicate commit"))
+
+    assert requeued is False
+    assert redis.delayed == {}
+    assert redis.items[0][0] == task_queue.DEAD_LETTER_QUEUE_KEY
+    assert '"attempts":1' in redis.items[0][1]
+    assert '"last_error":"duplicate commit"' in redis.items[0][1]
 
 
 @pytest.mark.asyncio

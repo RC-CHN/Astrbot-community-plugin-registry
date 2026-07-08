@@ -6,7 +6,7 @@ import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,12 +31,18 @@ SCAN_PROVIDERS = set(SCAN_PROVIDER_ORDER)
 LEGACY_PUBLIC_SCAN_PROVIDERS = get_scan_provider_registry().legacy_public_names
 
 
-def scan_provider_results(version: PluginVersion) -> dict[str, dict[str, Any]]:
+def scan_provider_results(
+    version: PluginVersion,
+    *,
+    providers: Sequence[str] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Return provider scan results keyed by provider, with legacy fallback."""
+    selected = set(providers) if providers is not None else None
     provider_results = {
         result.provider: _provider_result_payload(result)
         for result in getattr(version, "provider_results", []) or []
         if result.kind == "scan"
+        and (selected is None or result.provider in selected)
     }
     scan = version.scan
     if scan:
@@ -53,6 +59,8 @@ def scan_provider_results(version: PluginVersion) -> dict[str, dict[str, Any]]:
             },
         }
         for provider, payload in legacy_results.items():
+            if selected is not None and provider not in selected:
+                continue
             provider_results.setdefault(provider, payload)
     return provider_results
 
@@ -60,10 +68,11 @@ def scan_provider_results(version: PluginVersion) -> dict[str, dict[str, Any]]:
 def public_sec_scan(
     version: PluginVersion,
     *,
+    providers: Sequence[str] | None = None,
     coerce_unknown_to_false: bool = False,
 ) -> dict[str, dict[str, Any]]:
     """Format public sec_scan with known legacy keys first, then any extra providers."""
-    results = scan_provider_results(version)
+    results = scan_provider_results(version, providers=providers)
     output: dict[str, dict[str, Any]] = {}
     for provider in get_scan_provider_registry().legacy_public_names:
         if provider in results:
@@ -80,18 +89,28 @@ def public_sec_scan(
     return output
 
 
-def version_scan_summary(version: PluginVersion) -> dict[str, Any] | None:
-    results = scan_provider_results(version)
-    if not results and not version.scan:
+def version_scan_summary(
+    version: PluginVersion,
+    *,
+    providers: Sequence[str] | None = None,
+) -> dict[str, Any] | None:
+    results = scan_provider_results(version, providers=providers)
+    if not results and not version.scan and providers is None:
         return None
-    output = public_sec_scan(version)
+    output = public_sec_scan(version, providers=providers)
     scanned_at = None
-    if version.scan and version.scan.scanned_at:
+    selected = set(providers) if providers is not None else None
+    if (
+        version.scan
+        and version.scan.scanned_at
+        and (selected is None or selected.intersection(get_scan_provider_registry().legacy_public_names))
+    ):
         scanned_at = version.scan.scanned_at.isoformat()
     provider_updated_at = [
         result.updated_at
         for result in getattr(version, "provider_results", []) or []
         if result.kind == "scan" and result.updated_at is not None
+        and (selected is None or result.provider in selected)
     ]
     if provider_updated_at:
         scanned_at = max(provider_updated_at).isoformat()
@@ -120,6 +139,27 @@ def scan_providers_passed(version: PluginVersion, providers: tuple[str, ...] | N
         if result.get("pass") is None:
             return False
     return True
+
+
+def scan_providers_pending(version: PluginVersion, providers: Sequence[str] | None = None) -> bool:
+    return any(
+        result.get("mode") == "pending"
+        for result in scan_provider_results(version, providers=providers).values()
+    )
+
+
+def build_ready_for_scan_policy(version: PluginVersion, providers: Sequence[str] | None = None) -> bool:
+    if version.build_status == "success":
+        return True
+    if version.build_status == "scanning" and not scan_providers_pending(version, providers):
+        return True
+    return False
+
+
+def effective_build_status(version: PluginVersion, providers: Sequence[str] | None = None) -> str:
+    if version.build_status == "scanning" and not scan_providers_pending(version, providers):
+        return "success"
+    return version.build_status
 
 
 def _provider_result_payload(result: ReviewProviderResult) -> dict[str, Any]:
@@ -170,32 +210,35 @@ async def scan_version(
         defaults,
         local_path=local_path,
     )
-    virustotal_poll_delay: float | None = None
+    followup_task: tuple[str, float] | None = None
+    registry = get_scan_provider_registry()
     for provider, outcome in outcomes.items():
         provider_result = await _get_or_create_provider_result(db, version.id, provider)
-        if provider in get_scan_provider_registry().legacy_public_names:
+        if provider in registry.legacy_public_names:
             _set_provider_result(scan, provider, outcome.passed, outcome.message, outcome.mode)
         _set_review_provider_result(provider_result, provider, outcome)
-        if provider == "virustotal":
-            _apply_virustotal_tracking(scan, outcome)
-            if outcome.virustotal_analysis_id and outcome.virustotal_next_poll_at:
-                virustotal_poll_delay = _seconds_until(outcome.virustotal_next_poll_at)
+        definition = registry.get(provider)
+        if definition is not None:
+            definition.apply_tracking(scan, outcome)
+        if provider == "virustotal" and outcome.virustotal_analysis_id and outcome.virustotal_next_poll_at:
+            followup_task = ("virustotal_poll", _seconds_until(outcome.virustotal_next_poll_at))
     scan.scanned_at = datetime.now(UTC)
     if version.s3_key and version.download_url:
         version.build_status = "scanning" if any(outcome.mode == "pending" for outcome in outcomes.values()) else "success"
     await db.commit()
     await db.refresh(scan)
-    if virustotal_poll_delay is not None:
+    if followup_task is not None:
+        task_type, delay_seconds = followup_task
         await enqueue_task(
-            "virustotal_poll",
+            task_type,
             {"version_id": str(version.id)},
             db,
-            delay_seconds=virustotal_poll_delay,
+            delay_seconds=delay_seconds,
         )
     from ..services.registry_service import refresh_cache
 
     await refresh_cache(db)
-    if virustotal_poll_delay is None:
+    if followup_task is None:
         await _try_auto_publish_after_scan(db, version.id)
     return scan
 
@@ -212,8 +255,9 @@ async def mark_scan_pending(
         if provider in get_scan_provider_registry().legacy_public_names:
             _set_provider_result(scan, provider, None, "Scan queued", "pending")
         _set_review_provider_result(provider_result, provider, ScanOutcome(None, "Scan queued", "pending"))
-        if provider == "virustotal":
-            _clear_virustotal_tracking(scan)
+        definition = get_scan_provider_registry().get(provider)
+        if definition is not None:
+            definition.clear_tracking(scan)
     scan.scanned_at = datetime.now(UTC)
     if _can_mark_build_scanning(version):
         version.build_status = "scanning"
@@ -293,8 +337,9 @@ async def mark_scan_skipped(
                 outcome.mode,
             )
         _set_review_provider_result(provider_result, provider, outcome)
-        if provider == "virustotal":
-            _clear_virustotal_tracking(scan)
+        definition = get_scan_provider_registry().get(provider)
+        if definition is not None:
+            definition.clear_tracking(scan)
     scan.scanned_at = datetime.now(UTC)
     if version.s3_key and version.download_url:
         version.build_status = "success"
@@ -355,6 +400,32 @@ async def _selected_scan_providers(db: AsyncSession, providers: list[str] | None
     return registry.validate(providers)
 
 
+async def _complete_provider_outcome(
+    db: AsyncSession,
+    version: PluginVersion,
+    scan: SecurityScan,
+    provider: str,
+    outcome: ScanOutcome,
+) -> SecurityScan:
+    provider_result = await _get_or_create_provider_result(db, version.id, provider)
+    if provider in get_scan_provider_registry().legacy_public_names:
+        _set_provider_result(scan, provider, outcome.passed, outcome.message, outcome.mode)
+    _set_review_provider_result(provider_result, provider, outcome)
+    if outcome.mode == "pending":
+        _apply_provider_tracking(scan, provider, outcome)
+    else:
+        _clear_provider_tracking(scan, provider)
+    scan.scanned_at = datetime.now(UTC)
+    if version.s3_key and version.download_url:
+        version.build_status = "scanning" if outcome.mode == "pending" else "success"
+    await db.commit()
+    await db.refresh(scan)
+    await _refresh_registry_cache(db)
+    if outcome.mode != "pending":
+        await _try_auto_publish_after_scan(db, version.id)
+    return scan
+
+
 def _set_provider_result(
     scan: SecurityScan,
     provider: str,
@@ -408,31 +479,16 @@ def _set_review_provider_result(
     result.attempts = 0
 
 
-def _apply_virustotal_tracking(scan: SecurityScan, outcome: ScanOutcome) -> None:
-    if outcome.virustotal_analysis_id:
-        scan.virustotal_analysis_id = outcome.virustotal_analysis_id
-    if outcome.virustotal_file_sha256:
-        scan.virustotal_file_sha256 = outcome.virustotal_file_sha256
-    if outcome.virustotal_submitted_at:
-        scan.virustotal_submitted_at = outcome.virustotal_submitted_at
-    if outcome.virustotal_deadline_at:
-        scan.virustotal_deadline_at = outcome.virustotal_deadline_at
-    if outcome.virustotal_poll_attempts is not None:
-        scan.virustotal_poll_attempts = outcome.virustotal_poll_attempts
-
-    if outcome.mode == "pending":
-        scan.virustotal_next_poll_at = outcome.virustotal_next_poll_at
-    else:
-        scan.virustotal_next_poll_at = None
+def _apply_provider_tracking(scan: SecurityScan, provider: str, outcome: ScanOutcome) -> None:
+    definition = get_scan_provider_registry().get(provider)
+    if definition is not None:
+        definition.apply_tracking(scan, outcome)
 
 
-def _clear_virustotal_tracking(scan: SecurityScan) -> None:
-    scan.virustotal_analysis_id = None
-    scan.virustotal_file_sha256 = None
-    scan.virustotal_submitted_at = None
-    scan.virustotal_deadline_at = None
-    scan.virustotal_next_poll_at = None
-    scan.virustotal_poll_attempts = 0
+def _clear_provider_tracking(scan: SecurityScan, provider: str) -> None:
+    definition = get_scan_provider_registry().get(provider)
+    if definition is not None:
+        definition.clear_tracking(scan)
 
 
 def _provider_file_sha256(result: ReviewProviderResult) -> str | None:
@@ -466,6 +522,15 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
     if not analysis_id or mode != "pending":
         return scan
 
+    if "virustotal" not in await runtime_scan_enabled_providers(db):
+        outcome = ScanOutcome(
+            True,
+            "Scan provider disabled: virustotal",
+            "skipped",
+            virustotal_analysis_id=analysis_id,
+        )
+        return await _complete_provider_outcome(db, version, scan, "virustotal", outcome)
+
     config = await runtime_virustotal_config(db)
     if not config.get("api_key"):
         defaults = await runtime_scan_defaults(db)
@@ -475,17 +540,7 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
             "skipped",
             virustotal_analysis_id=analysis_id,
         )
-        _set_provider_result(scan, "virustotal", outcome.passed, outcome.message, outcome.mode)
-        _set_review_provider_result(provider_result, "virustotal", outcome)
-        _clear_virustotal_tracking(scan)
-        scan.scanned_at = datetime.now(UTC)
-        if version.s3_key and version.download_url:
-            version.build_status = "success"
-        await db.commit()
-        await db.refresh(scan)
-        await _refresh_registry_cache(db)
-        await _try_auto_publish_after_scan(db, version.id)
-        return scan
+        return await _complete_provider_outcome(db, version, scan, "virustotal", outcome)
 
     now = datetime.now(UTC)
     max_wait_seconds = max(1, int(config["max_wait_seconds"]))
@@ -498,17 +553,7 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
             attempts=attempts_so_far,
             max_wait_seconds=max_wait_seconds,
         )
-        _set_provider_result(scan, "virustotal", outcome.passed, outcome.message, outcome.mode)
-        _set_review_provider_result(provider_result, "virustotal", outcome)
-        _apply_virustotal_tracking(scan, outcome)
-        scan.scanned_at = now
-        if version.s3_key and version.download_url:
-            version.build_status = "success"
-        await db.commit()
-        await db.refresh(scan)
-        await _refresh_registry_cache(db)
-        await _try_auto_publish_after_scan(db, version.id)
-        return scan
+        return await _complete_provider_outcome(db, version, scan, "virustotal", outcome)
 
     outcome = await poll_virustotal_analysis_once(analysis_id, config)
     if outcome.mode == "pending":
@@ -540,7 +585,7 @@ async def poll_virustotal_analysis(db: AsyncSession, version_id: uuid.UUID) -> S
 
     _set_provider_result(scan, "virustotal", outcome.passed, outcome.message, outcome.mode)
     _set_review_provider_result(provider_result, "virustotal", outcome)
-    _apply_virustotal_tracking(scan, outcome)
+    _apply_provider_tracking(scan, "virustotal", outcome)
     scan.scanned_at = datetime.now(UTC)
     if version.s3_key and version.download_url:
         version.build_status = "scanning" if outcome.mode == "pending" else "success"

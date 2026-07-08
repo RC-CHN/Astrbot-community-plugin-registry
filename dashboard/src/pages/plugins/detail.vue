@@ -123,7 +123,13 @@
     </template>
   </n-spin>
 
-  <n-modal v-model:show="publishConfirmVisible" preset="card" title="发布当前版本" class="publish-confirm-modal">
+  <n-modal
+    v-model:show="publishConfirmVisible"
+    preset="card"
+    title="发布当前版本"
+    class="publish-confirm-modal"
+    :style="publishConfirmModalStyle"
+  >
     <div class="publish-confirm">
       <p>此操作将把当前版本设为 AstrBot 插件源返回的版本。</p>
       <ul>
@@ -177,6 +183,10 @@ const artifactBrowserVisible = ref(false)
 const artifactBrowserVersion = ref<VersionSummary | null>(null)
 const publishConfirmVisible = ref(false)
 const publishReviewStatus = ref<'approved' | 'skipped'>('approved')
+const publishConfirmModalStyle = {
+  maxWidth: 'calc(100vw - 32px)',
+  width: '520px',
+}
 const publishCandidateBlockers = computed(() => {
   if (!plugin.value) return []
   if (!latestCandidate.value) return ['暂无版本']

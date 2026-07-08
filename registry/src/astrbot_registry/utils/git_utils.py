@@ -204,15 +204,11 @@ def clone_repo(
 
 
 def _git_proxy_args(proxy_url: str | None) -> list[str]:
+    args = ["-c", "http.version=HTTP/1.1"]
     proxy_url = (proxy_url or "").strip()
     if not proxy_url:
-        return []
-    return [
-        "-c",
-        f"http.proxy={proxy_url}",
-        "-c",
-        f"https.proxy={proxy_url}",
-    ]
+        return args
+    return [*args, "-c", f"http.proxy={proxy_url}", "-c", f"https.proxy={proxy_url}"]
 
 
 def _github_api_headers(github_token: str | None = None) -> dict[str, str]:

@@ -150,8 +150,14 @@ services:
       - clamav_data:/var/lib/clamav
     expose:
       - "3310"
-    mem_limit: ${CLAMAV_MEM_LIMIT:-1536m}
+    mem_limit: ${CLAMAV_MEM_LIMIT:-3072m}
     cpus: "${CLAMAV_CPUS:-1.0}"
+    healthcheck:
+      test: ["CMD-SHELL", "echo PING | nc -w 2 127.0.0.1 3310 | grep -q PONG"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
 
   backend:
     image: ${IMAGE_PREFIX:-ghcr.io/rc-chn/astrbot-community-plugin-registry}-backend:${IMAGE_TAG:-latest}

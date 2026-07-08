@@ -12,7 +12,7 @@ from ..cache import get_redis
 from ..models import Plugin, PluginVersion, PluginVersionStat
 from ..services.plugin_service import scan_passed
 from ..services.runtime_config import runtime_redis_cache_ttl, runtime_s3_public_url, runtime_scan_enabled_providers
-from ..services.scan_service import public_sec_scan
+from ..services.scan_service import build_ready_for_scan_policy, public_sec_scan
 
 CACHE_KEY = "registry_json"
 MD5_KEY = "registry_md5"
@@ -34,7 +34,12 @@ async def generate_registry_json(db: AsyncSession) -> dict[str, Any]:
         latest = _get_latest(plugin.versions, required_providers=required_providers)
         if latest is None:
             continue
-        registry[plugin.plugin_key] = _format_entry(plugin, latest, s3_public_url=s3_public_url)
+        registry[plugin.plugin_key] = _format_entry(
+            plugin,
+            latest,
+            s3_public_url=s3_public_url,
+            scan_providers=required_providers,
+        )
 
     if client:
         await client.set(CACHE_KEY, canonical_registry_json(registry), ex=await runtime_redis_cache_ttl(db))
@@ -109,14 +114,19 @@ def _get_latest(
         if (
             version.is_latest
             and version.version_status == "active"
-            and version.build_status == "success"
+            and build_ready_for_scan_policy(version, required_providers)
             and scan_passed(version, required_providers)
         ):
             return version
     return None
 
 
-def _format_entry(plugin: Plugin, version: PluginVersion, s3_public_url: str | None = None) -> dict[str, Any]:
+def _format_entry(
+    plugin: Plugin,
+    version: PluginVersion,
+    s3_public_url: str | None = None,
+    scan_providers: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     tags = [t.name for t in plugin.tags]
     return {
         "name": plugin.plugin_key,
@@ -135,7 +145,7 @@ def _format_entry(plugin: Plugin, version: PluginVersion, s3_public_url: str | N
         "logo": _logo_url(plugin.logo_s3_key, s3_public_url=s3_public_url),
         "commit_sha": version.commit_sha,
         "download_url": version.download_url or "",
-        "sec_scan": public_sec_scan(version, coerce_unknown_to_false=True),
+        "sec_scan": public_sec_scan(version, providers=scan_providers, coerce_unknown_to_false=True),
         "i18n": {i.locale: i.data for i in plugin.i18n_entries},
         "astrbot_version": plugin.astrbot_version,
         "support_platforms": plugin.support_platforms or [],

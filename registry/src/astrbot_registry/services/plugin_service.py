@@ -13,7 +13,7 @@ from ..schemas.plugin import PluginUpdate
 from ..services.errors import ConflictError, InvalidStateError, NotFoundError, ValidationError
 from ..services.runtime_config import runtime_s3_layout, runtime_s3_public_url, runtime_scan_enabled_providers
 from ..services.s3_service import build_public_url_with_base, build_s3_key_with_layout, delete_file, upload_file
-from ..services.scan_service import scan_providers_passed
+from ..services.scan_service import build_ready_for_scan_policy, scan_providers_passed
 from ..utils.metadata_parser import PluginMetadata, infer_plugin_key
 
 
@@ -281,8 +281,6 @@ async def set_version_status(
     if version is None:
         raise NotFoundError("Version not found")
     if status == "active":
-        if version.build_status != "success":
-            raise InvalidStateError("Version build must be successful before activation")
         result = await db.execute(
             select(PluginVersion)
             .where(PluginVersion.id == version_id)
@@ -293,8 +291,12 @@ async def set_version_status(
         )
         version = result.scalar_one()
         required_providers = await runtime_scan_enabled_providers(db)
+        if not build_ready_for_scan_policy(version, required_providers):
+            raise InvalidStateError("Version build must be successful before activation")
         if not scan_passed(version, required_providers):
             raise InvalidStateError("Version security scan must pass before activation")
+        if version.build_status == "scanning":
+            version.build_status = "success"
     version.version_status = status
     if status in {"draft", "deprecated", "deleted"}:
         version.is_latest = False
@@ -334,11 +336,13 @@ async def set_latest_version(
         raise NotFoundError("Version not found")
     if version.version_status != "active":
         raise InvalidStateError("Version must be active to be set as latest")
-    if version.build_status != "success":
-        raise InvalidStateError("Version build must be successful to be set as latest")
     required_providers = await runtime_scan_enabled_providers(db)
+    if not build_ready_for_scan_policy(version, required_providers):
+        raise InvalidStateError("Version build must be successful to be set as latest")
     if not scan_passed(version, required_providers):
         raise InvalidStateError("Version security scan must pass before setting latest")
+    if version.build_status == "scanning":
+        version.build_status = "success"
 
     await db.execute(
         update(PluginVersion)
@@ -383,11 +387,13 @@ async def publish_plugin_version(
     version = next((item for item in versions if item.id == version_id), None)
     if version is None:
         raise NotFoundError("Version not found")
-    if version.build_status != "success":
-        raise InvalidStateError("Version build must be successful before publishing")
     required_providers = await runtime_scan_enabled_providers(db)
+    if not build_ready_for_scan_policy(version, required_providers):
+        raise InvalidStateError("Version build must be successful before publishing")
     if not scan_passed(version, required_providers):
         raise InvalidStateError("Version security scan must pass before publishing")
+    if version.build_status == "scanning":
+        version.build_status = "success"
 
     plugin.status = "active"
     plugin.review_status = review_status

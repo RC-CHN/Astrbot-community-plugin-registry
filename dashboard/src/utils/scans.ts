@@ -51,8 +51,10 @@ export const SCAN_ACTION_PROVIDERS = [
 
 export function scanProviderEntries(scan: ScanSummary | null): ScanProviderEntry[] {
   if (!scan) return []
+  const enabled = enabledScanProviders(scan)
   const entries: ScanProviderEntry[] = []
   for (const [provider, value] of Object.entries(scan)) {
+    if (enabled && !enabled.includes(provider)) continue
     if (provider !== 'scanned_at' && isScanProviderResult(value)) {
       entries.push({ provider, result: value })
     }
@@ -60,6 +62,12 @@ export function scanProviderEntries(scan: ScanSummary | null): ScanProviderEntry
   return entries.sort(
     (a, b) => providerRank(a.provider) - providerRank(b.provider) || a.provider.localeCompare(b.provider),
   )
+}
+
+export function enabledScanActionProviders(scan: ScanSummary | null) {
+  const enabled = enabledScanProviders(scan)
+  if (!enabled) return SCAN_ACTION_PROVIDERS
+  return SCAN_ACTION_PROVIDERS.filter((item) => enabled.includes(item.provider))
 }
 
 export function providerLabel(provider: string): string {
@@ -167,9 +175,15 @@ function providerRank(provider: string): number {
 }
 
 function requiredProviderResults(scan: ScanSummary | null): Array<ScanProviderResult | null> | null {
-  if (!scan || !Array.isArray(scan.required_providers)) return null
+  const enabled = enabledScanProviders(scan)
+  if (!scan || !enabled) return null
   const byProvider = new Map(scanProviderEntries(scan).map((entry) => [entry.provider, entry.result]))
-  return scan.required_providers.map((provider) => byProvider.get(provider) || null)
+  return enabled.map((provider) => byProvider.get(provider) || null)
+}
+
+function enabledScanProviders(scan: ScanSummary | null): string[] | null {
+  if (!scan || !Array.isArray(scan.required_providers)) return null
+  return scan.required_providers.filter((provider): provider is string => typeof provider === 'string')
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {

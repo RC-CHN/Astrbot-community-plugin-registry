@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...models import PluginVersion
+from ...models import PluginVersion, SecurityScan
 
 
 @dataclass(frozen=True)
@@ -54,3 +54,9 @@ class ScanProvider(ABC):
         local_path: Path | None,
     ) -> ScanOutcome:
         """Run the provider scan and return a normalized outcome."""
+
+    def apply_tracking(self, scan: SecurityScan, outcome: ScanOutcome) -> None:
+        """Persist provider-specific tracking fields on legacy scan records."""
+
+    def clear_tracking(self, scan: SecurityScan) -> None:
+        """Clear provider-specific pending tracking fields on legacy scan records."""

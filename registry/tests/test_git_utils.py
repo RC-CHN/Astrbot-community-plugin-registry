@@ -36,9 +36,42 @@ def test_clone_repo_adds_http_proxy_config(monkeypatch, tmp_path) -> None:
         [
             "git",
             "-c",
+            "http.version=HTTP/1.1",
+            "-c",
             "http.proxy=http://proxy.example:1080",
             "-c",
             "https.proxy=http://proxy.example:1080",
+            "clone",
+            "--filter=blob:none",
+            "--depth",
+            "1",
+            "https://github.com/example/repo",
+            str(tmp_path / "repo"),
+        ]
+    ]
+
+
+def test_clone_repo_forces_http_1_1_without_proxy(monkeypatch, tmp_path) -> None:
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    clone_repo(
+        "https://github.com/example/repo",
+        tmp_path / "repo",
+        timeout=10,
+        allowed_hosts=["github.com"],
+    )
+
+    assert calls == [
+        [
+            "git",
+            "-c",
+            "http.version=HTTP/1.1",
             "clone",
             "--filter=blob:none",
             "--depth",
@@ -68,7 +101,14 @@ def test_clone_repo_keeps_full_clone_for_commit_sha(monkeypatch, tmp_path) -> No
     )
 
     assert calls == [
-        ["git", "clone", "https://github.com/example/repo", str(tmp_path / "repo")],
+        [
+            "git",
+            "-c",
+            "http.version=HTTP/1.1",
+            "clone",
+            "https://github.com/example/repo",
+            str(tmp_path / "repo"),
+        ],
         ["git", "-C", str(tmp_path / "repo"), "checkout", ref],
     ]
 

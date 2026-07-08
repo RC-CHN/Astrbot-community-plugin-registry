@@ -63,21 +63,30 @@ spec:
             - name: data
               mountPath: /var/lib/clamav
           startupProbe:
-            tcpSocket:
-              port: clamd
+            exec:
+              command:
+                - sh
+                - -lc
+                - echo PING | nc -w 2 127.0.0.1 3310 | grep -q PONG
             failureThreshold: 60
             periodSeconds: 10
             timeoutSeconds: 5
           readinessProbe:
-            tcpSocket:
-              port: clamd
+            exec:
+              command:
+                - sh
+                - -lc
+                - echo PING | nc -w 2 127.0.0.1 3310 | grep -q PONG
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
           livenessProbe:
-            tcpSocket:
-              port: clamd
+            exec:
+              command:
+                - sh
+                - -lc
+                - echo PING | nc -w 2 127.0.0.1 3310 | grep -q PONG
             initialDelaySeconds: 120
             periodSeconds: 30
             timeoutSeconds: 5
@@ -85,10 +94,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 768Mi
+              memory: 1536Mi
             limits:
               cpu: "1"
-              memory: 1536Mi
+              memory: 3072Mi
       volumes:
         - name: data
           persistentVolumeClaim:

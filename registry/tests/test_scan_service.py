@@ -8,6 +8,7 @@ from astrbot_registry.services.scan_providers import (
     set_scan_provider_registry,
 )
 from astrbot_registry.services.scan_providers.clamav import format_clamav_reply
+from astrbot_registry.services.scan_providers.clamav import _clamav_os_error_hint
 from astrbot_registry.services.scan_providers.llm_agent import (
     build_llm_context,
     parse_llm_response,
@@ -21,7 +22,10 @@ from astrbot_registry.services.scan_providers.virustotal import (
 from astrbot_registry.services.scan_service import (
     _can_mark_build_scanning,
     _scan_selected_providers,
+    build_ready_for_scan_policy,
+    effective_build_status,
     scan_providers_passed,
+    version_scan_summary,
 )
 from astrbot_registry.models import PluginVersion, ReviewProviderResult
 
@@ -170,6 +174,32 @@ def test_scan_passed_requires_selected_provider_result() -> None:
     assert scan_providers_passed(version, providers=("clamav", "llm_agent")) is False
 
 
+def test_version_scan_summary_only_includes_enabled_providers() -> None:
+    version = PluginVersion()
+    version.provider_results = [
+        ReviewProviderResult(provider="clamav", kind="scan", mode="real", passed=True),
+        ReviewProviderResult(provider="virustotal", kind="scan", mode="pending", passed=None),
+    ]
+
+    summary = version_scan_summary(version, providers=("clamav",))
+
+    assert summary is not None
+    assert "clamav" in summary
+    assert "virustotal" not in summary
+
+
+def test_scan_policy_helpers_ignore_disabled_provider_pending_state() -> None:
+    version = PluginVersion(build_status="scanning")
+    version.provider_results = [
+        ReviewProviderResult(provider="clamav", kind="scan", mode="real", passed=True),
+        ReviewProviderResult(provider="virustotal", kind="scan", mode="pending", passed=None),
+    ]
+
+    assert scan_providers_passed(version, providers=("clamav",)) is True
+    assert build_ready_for_scan_policy(version, providers=("clamav",)) is True
+    assert effective_build_status(version, providers=("clamav",)) == "success"
+
+
 def test_format_clamav_reply() -> None:
     clean = format_clamav_reply("stream: OK", file_size=2048)
     assert clean.passed is True
@@ -182,6 +212,13 @@ def test_format_clamav_reply() -> None:
     assert infected.mode == "real"
     assert "Eicar-Test-Signature" in infected.message
     assert "artifact_size=4.0 KiB" in infected.message
+
+
+def test_clamav_connection_refused_hint() -> None:
+    hint = _clamav_os_error_hint(ConnectionRefusedError(111, "Connection refused"), "clamav", 3310)
+
+    assert "clamd refused TCP connection at clamav:3310" in hint
+    assert "memory limit" in hint
 
 
 @pytest.mark.asyncio

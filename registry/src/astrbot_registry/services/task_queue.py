@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..cache import get_redis
 from ..config import settings
+from .errors import RegistryError
 from .runtime_config import runtime_task_max_attempts, runtime_task_retry_delay_seconds
 from .task_observability import create_worker_task, mark_task_dead, mark_task_retrying
 
@@ -122,6 +123,12 @@ async def requeue_task(task: dict[str, Any], error: Exception, db: AsyncSession 
 
     task["attempts"] = int(task.get("attempts") or 0) + 1
     task["last_error"] = str(error)
+    if not is_retryable_task_error(error):
+        if db is not None:
+            await mark_task_dead(db, task.get("id"), attempts=task["attempts"], error=str(error))
+        await redis.rpush(DEAD_LETTER_QUEUE_KEY, encode_task(_redacted_task(task)))
+        return False
+
     max_attempts = int(task.get("max_attempts") or await runtime_task_max_attempts(db))
     if task["attempts"] >= max_attempts:
         if db is not None:
@@ -139,4 +146,10 @@ async def requeue_task(task: dict[str, Any], error: Exception, db: AsyncSession 
             delay_seconds=retry_delay,
         )
     await push_task(redis, task, delay_seconds=retry_delay)
+    return True
+
+
+def is_retryable_task_error(error: Exception) -> bool:
+    if isinstance(error, RegistryError):
+        return bool(getattr(error, "retryable", False))
     return True

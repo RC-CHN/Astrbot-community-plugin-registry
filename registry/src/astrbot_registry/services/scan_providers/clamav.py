@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import struct
 import tempfile
 from pathlib import Path
@@ -78,7 +79,8 @@ async def scan_clamav(local_path: Path, config: dict[str, Any]) -> ScanOutcome:
     except TimeoutError:
         return ScanOutcome(False, f"ClamAV scan failed: timed out after {timeout} seconds", "error")
     except OSError as exc:
-        return ScanOutcome(False, f"ClamAV scan failed: {exc}", "error")
+        hint = _clamav_os_error_hint(exc, host, port)
+        return ScanOutcome(False, f"ClamAV scan failed: {exc}{hint}", "error")
 
     return format_clamav_reply(reply, file_size=file_size)
 
@@ -129,6 +131,14 @@ def _clamav_found_signature(reply: str) -> str:
     if ": " in signature:
         signature = signature.rsplit(": ", 1)[1]
     return signature or "unknown"
+
+
+def _clamav_os_error_hint(exc: OSError, host: str, port: int) -> str:
+    if exc.errno == errno.ECONNREFUSED:
+        return f"; clamd refused TCP connection at {host}:{port}, check ClamAV health, memory limit, and listener config"
+    if exc.errno in {errno.EHOSTUNREACH, errno.ENETUNREACH}:
+        return f"; clamd host {host}:{port} is unreachable, check CLAMAV_HOST/CLAMAV_PORT and container networking"
+    return ""
 
 
 def _human_bytes(value: int) -> str:

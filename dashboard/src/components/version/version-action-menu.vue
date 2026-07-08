@@ -58,7 +58,7 @@ import { NButton, NButtonGroup, NDropdown, NPopconfirm, type DropdownOption } fr
 
 import type { PluginDetail, VersionStatus, VersionSummary } from '@/api/types'
 import { canActivateVersion, getVersionBlockers } from '@/composables/use-plugin-actions'
-import { SCAN_ACTION_PROVIDERS } from '@/utils/scans'
+import { enabledScanActionProviders } from '@/utils/scans'
 
 const props = withDefaults(
   defineProps<{
@@ -86,9 +86,9 @@ const latestBlockers = computed(() => getVersionBlockers(props.plugin, props.ver
 const scanOptions = computed<DropdownOption[]>(() => {
   const scanDisabled = !props.version.download_url || props.version.build_status === 'scanning'
   return [
-    { label: '运行启用扫描', key: 'rescan', disabled: scanDisabled },
+    { label: '运行所有扫描', key: 'rescan', disabled: scanDisabled },
     { type: 'divider', key: 'scan-divider' },
-    ...SCAN_ACTION_PROVIDERS.flatMap(({ provider, label }) => [
+    ...enabledScanActionProviders(props.version.scan).flatMap(({ provider, label }) => [
       { label: `${label} 扫描`, key: `${provider}:run`, disabled: scanDisabled },
       { label: `${label} 跳过`, key: `${provider}:skip` },
     ]),

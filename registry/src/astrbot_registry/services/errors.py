@@ -3,6 +3,7 @@
 
 class RegistryError(Exception):
     status_code = 400
+    retryable = False
 
 
 class NotFoundError(RegistryError):

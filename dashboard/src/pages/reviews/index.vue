@@ -144,7 +144,13 @@
       </main>
     </div>
 
-    <n-modal v-model:show="publishConfirmVisible" preset="card" title="发布当前版本" class="publish-confirm-modal">
+    <n-modal
+      v-model:show="publishConfirmVisible"
+      preset="card"
+      title="发布当前版本"
+      class="publish-confirm-modal"
+      :style="publishConfirmModalStyle"
+    >
       <div class="publish-confirm">
         <p>此操作将把当前版本设为 AstrBot 插件源返回的版本。</p>
         <ul>
@@ -152,11 +158,16 @@
           <li>标记当前版本为发布候选</li>
           <li>将当前版本设为插件源当前版本</li>
         </ul>
-        <n-radio-group v-model:value="publishReviewStatus" class="publish-review-options">
-          <n-radio value="approved">标记人工审核通过并发布</n-radio>
-          <n-radio value="skipped">跳过人工审核并发布</n-radio>
-        </n-radio-group>
-        <p class="publish-confirm-note">跳过人工审核不会跳过构建和安全扫描；后端仍会校验所有发布阻断。</p>
+        <template v-if="needsPublishReviewChoice">
+          <n-radio-group v-model:value="publishReviewStatus" class="publish-review-options">
+            <n-radio value="approved">标记人工审核通过并发布</n-radio>
+            <n-radio value="skipped">跳过人工审核并发布</n-radio>
+          </n-radio-group>
+          <p class="publish-confirm-note">跳过人工审核不会跳过构建和安全扫描；后端仍会校验所有发布阻断。</p>
+        </template>
+        <p v-else class="publish-confirm-note">
+          已记录{{ reviewStatusLabel(plugin?.review_status || '') }}，本次发布会沿用当前人工审核状态。
+        </p>
       </div>
       <template #footer>
         <div class="publish-confirm-footer">
@@ -204,6 +215,14 @@ const artifactBrowserVisible = ref(false)
 const artifactBrowserVersion = ref<VersionSummary | null>(null)
 const publishConfirmVisible = ref(false)
 const publishReviewStatus = ref<'approved' | 'skipped'>('approved')
+const publishConfirmModalStyle = {
+  maxWidth: 'calc(100vw - 32px)',
+  width: '520px',
+}
+const needsPublishReviewChoice = computed(() => {
+  const status = plugin.value?.review_status
+  return status !== 'approved' && status !== 'skipped'
+})
 const publishBlockers = computed(() => {
   if (!plugin.value) return []
   if (!candidate.value) return ['暂无版本']
@@ -223,7 +242,13 @@ watch(
 
 async function approvePluginOnly() {
   if (!plugin.value) return
-  await runAction(() => mutations.updatePluginStatus.mutateAsync({ pluginId: plugin.value!.id, status: 'active' }))
+  await runAction(() =>
+    mutations.updatePluginReviewStatus.mutateAsync({
+      pluginId: plugin.value!.id,
+      status: plugin.value!.status,
+      reviewStatus: 'approved',
+    }),
+  )
 }
 
 function openPublishConfirm() {
@@ -233,11 +258,15 @@ function openPublishConfirm() {
 
 async function confirmPublishCurrent() {
   if (!plugin.value || !candidate.value) return
+  const reviewStatus =
+    plugin.value.review_status === 'approved' || plugin.value.review_status === 'skipped'
+      ? plugin.value.review_status
+      : publishReviewStatus.value
   await runAction(() =>
     mutations.publishVersion.mutateAsync({
       pluginId: plugin.value!.id,
       versionId: candidate.value!.id,
-      reviewStatus: publishReviewStatus.value,
+      reviewStatus,
     }),
   )
   publishConfirmVisible.value = false

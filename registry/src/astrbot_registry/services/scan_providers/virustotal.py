@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...models import PluginVersion
+from ...models import PluginVersion, SecurityScan
 from ..runtime_config import runtime_virustotal_config
 from ..s3_service import download_file
 from .base import ScanOutcome, ScanProvider
@@ -37,6 +37,31 @@ class VirusTotalProvider(ScanProvider):
         local_path: Path | None,
     ) -> ScanOutcome:
         return await scan_virustotal_for_version(version, config, local_path)
+
+    def apply_tracking(self, scan: SecurityScan, outcome: ScanOutcome) -> None:
+        if outcome.virustotal_analysis_id:
+            scan.virustotal_analysis_id = outcome.virustotal_analysis_id
+        if outcome.virustotal_file_sha256:
+            scan.virustotal_file_sha256 = outcome.virustotal_file_sha256
+        if outcome.virustotal_submitted_at:
+            scan.virustotal_submitted_at = outcome.virustotal_submitted_at
+        if outcome.virustotal_deadline_at:
+            scan.virustotal_deadline_at = outcome.virustotal_deadline_at
+        if outcome.virustotal_poll_attempts is not None:
+            scan.virustotal_poll_attempts = outcome.virustotal_poll_attempts
+
+        if outcome.mode == "pending":
+            scan.virustotal_next_poll_at = outcome.virustotal_next_poll_at
+        else:
+            scan.virustotal_next_poll_at = None
+
+    def clear_tracking(self, scan: SecurityScan) -> None:
+        scan.virustotal_analysis_id = None
+        scan.virustotal_file_sha256 = None
+        scan.virustotal_submitted_at = None
+        scan.virustotal_deadline_at = None
+        scan.virustotal_next_poll_at = None
+        scan.virustotal_poll_attempts = 0
 
 
 async def scan_virustotal_for_version(
