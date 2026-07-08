@@ -23,6 +23,30 @@ acprctl --format json plugin show astrbot-plugin-example
 
 ## Submit a Public GitHub Plugin
 
+Inspect the repository first when the agent does not already know the plugin key, metadata version, default branch, or duplicate status:
+
+```bash
+acprctl --format json plugin inspect-repo \
+  --repo-url https://github.com/org/astrbot_plugin_example
+```
+
+For a private repository or when GitHub rate limits anonymous requests, pass a temporary token for that request:
+
+```bash
+acprctl --format json plugin inspect-repo \
+  --repo-url https://github.com/org/private_plugin \
+  --github-token '<github-token>'
+```
+
+If branch/tag lists are already known and the agent only needs the selected commit and metadata preview, use the faster ref resolver:
+
+```bash
+acprctl --format json plugin resolve-ref \
+  --repo-url https://github.com/org/astrbot_plugin_example \
+  --ref-type branch \
+  --ref main
+```
+
 Submit from a Git repository:
 
 ```bash
@@ -30,12 +54,20 @@ acprctl plugin submit \
   --repo-url https://github.com/org/astrbot_plugin_example \
   --version v1.0.0 \
   --ref main \
+  --changelog "Initial import" \
   --plugin-key astrbot-plugin-example \
   --wait \
   --wait-timeout 300s
 ```
 
 Use `--plugin-key` with `--wait`; the backend submit response may only say queued, so the CLI needs a stable ref to poll.
+
+Version and changelog semantics:
+
+- If `--version` is omitted, the backend uses the repository `metadata.yaml` version.
+- If `--version` is provided for Git submit/build, the backend rewrites the built artifact's `metadata.yaml` `version` field to match it.
+- `--changelog` is stored on the registry version record. It is not written into plugin source files.
+- Use `--github-token` only for a temporary per-request GitHub token. The global registry bearer token remains `--token`.
 
 After the wait succeeds:
 
@@ -60,11 +92,13 @@ Trigger a build for an already registered plugin:
 
 ```bash
 acprctl plugin build astrbot-plugin-example \
-  --version v1.1.0 \
   --ref main \
+  --changelog "Update dependencies" \
   --wait \
   --wait-timeout 300s
 ```
+
+Omit `--version` to keep the selected commit's `metadata.yaml` version. Add `--version v1.1.0` only when the operator intentionally wants to rewrite the packaged metadata version. If the plugin repository is private, add `--github-token '<github-token>'` or use a stored credential id when available.
 
 Then inspect:
 
@@ -222,6 +256,12 @@ acprctl plugin version set-status astrbot-plugin-example \
 
 Common statuses are delegated to the backend. Use `active`, `draft`, `deprecated`, or `deleted` according to the backend response.
 
+Delete one version and its artifact only with explicit user intent:
+
+```bash
+acprctl plugin version delete astrbot-plugin-example --version v1.1.0 --yes
+```
+
 ## Metadata and Status Updates
 
 Update metadata:
@@ -250,6 +290,8 @@ Delete only with explicit user intent:
 acprctl plugin delete astrbot-plugin-example --yes
 ```
 
+Plugin deletion removes the plugin record, all version records, and all version artifacts.
+
 ## Runtime Config and Cache
 
 Inspect config:
@@ -263,6 +305,14 @@ Set one value:
 ```bash
 acprctl config set --key PUBLIC_CACHE_MAX_AGE --value 60
 ```
+
+Set a global GitHub token for repository inspection, ref lookup, size preflight, and clone fallback:
+
+```bash
+acprctl config set --key GITHUB_TOKEN --value '<github-token>'
+```
+
+Use this when GitHub reports API rate limits or when operators want public repository checks to use an authenticated quota. Per-request submit tokens still take precedence. Never print the token; verify it through `acprctl --format json config list` and `sensitive_status.GITHUB_TOKEN`.
 
 Set multiple values atomically in one request:
 

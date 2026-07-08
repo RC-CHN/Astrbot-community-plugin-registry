@@ -147,7 +147,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  config list|set|providers")
 	fmt.Fprintln(w, "  cache refresh")
 	fmt.Fprintln(w, "  stats")
-	fmt.Fprintln(w, "  plugin list|show|submit|upload|update|delete|set-status|build|scan|version")
+	fmt.Fprintln(w, "  plugin list|show|inspect-repo|resolve-ref|submit|upload|update|delete|set-status|build|scan|version")
 	fmt.Fprintln(w, "  review list|approve|publish|skip|disable|delete")
 	fmt.Fprintln(w, "  task list|show|retry")
 	fmt.Fprintln(w, "  worker status")
@@ -933,6 +933,10 @@ func dispatchPlugin(args []string, options runtimeOptions, c *client) (any, *cli
 			return nil, err
 		}
 		return getPluginDetail(c, ref)
+	case "inspect-repo":
+		return handleRepoInspect(args[1:], c)
+	case "resolve-ref":
+		return handleRepoResolve(args[1:], c)
 	case "submit":
 		return handlePluginSubmit(args[1:], options, c)
 	case "upload":
@@ -953,13 +957,66 @@ func dispatchPlugin(args []string, options runtimeOptions, c *client) (any, *cli
 	return nil, &cliError{Message: "unknown plugin command: " + args[0], Status: 400, Code: exitValidation}
 }
 
+func handleRepoInspect(args []string, c *client) (any, *cliError) {
+	opts, positionals, err := parseLocalOptions(args, map[string]optionSpec{
+		"repo-url":      {HasValue: true},
+		"ref-type":      {HasValue: true},
+		"ref":           {HasValue: true},
+		"github-token":  {HasValue: true},
+		"credential-id": {HasValue: true},
+		"include-refs":  {HasValue: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(positionals) > 0 || last(opts["repo-url"]) == "" {
+		return nil, &cliError{Message: "plugin inspect-repo requires --repo-url", Status: 400, Code: exitValidation}
+	}
+	payload := repoLookupPayload(opts, true)
+	return c.request("POST", "/admin/plugins/inspect-repo", nil, payload, true, true)
+}
+
+func handleRepoResolve(args []string, c *client) (any, *cliError) {
+	opts, positionals, err := parseLocalOptions(args, map[string]optionSpec{
+		"repo-url":      {HasValue: true},
+		"ref-type":      {HasValue: true},
+		"ref":           {HasValue: true},
+		"github-token":  {HasValue: true},
+		"credential-id": {HasValue: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(positionals) > 0 || last(opts["repo-url"]) == "" {
+		return nil, &cliError{Message: "plugin resolve-ref requires --repo-url", Status: 400, Code: exitValidation}
+	}
+	payload := repoLookupPayload(opts, false)
+	return c.request("POST", "/admin/plugins/resolve-ref", nil, payload, true, true)
+}
+
+func repoLookupPayload(opts map[string][]string, includeRefs bool) map[string]any {
+	payload := map[string]any{
+		"repo_url": last(opts["repo-url"]),
+	}
+	setString(payload, "ref_type", last(opts["ref-type"]))
+	setString(payload, "ref", last(opts["ref"]))
+	setString(payload, "temporary_token", last(opts["github-token"]))
+	setString(payload, "credential_id", last(opts["credential-id"]))
+	if includeRefs {
+		payload["include_refs"] = parseBoolDefault(last(opts["include-refs"]), true)
+	}
+	return payload
+}
+
 func handlePluginSubmit(args []string, options runtimeOptions, c *client) (any, *cliError) {
 	opts, positionals, err := parseLocalOptions(args, map[string]optionSpec{
-		"repo-url":   {HasValue: true},
-		"version":    {HasValue: true},
-		"ref":        {HasValue: true},
-		"changelog":  {HasValue: true},
-		"plugin-key": {HasValue: true},
+		"repo-url":      {HasValue: true},
+		"version":       {HasValue: true},
+		"ref":           {HasValue: true},
+		"changelog":     {HasValue: true},
+		"plugin-key":    {HasValue: true},
+		"github-token":  {HasValue: true},
+		"credential-id": {HasValue: true},
 	})
 	if err != nil {
 		return nil, err
@@ -973,6 +1030,8 @@ func handlePluginSubmit(args []string, options runtimeOptions, c *client) (any, 
 		"ref":       nullableString(last(opts["ref"])),
 		"changelog": last(opts["changelog"]),
 	}
+	setString(payload, "temporary_token", last(opts["github-token"]))
+	setString(payload, "credential_id", last(opts["credential-id"]))
 	result, err := c.request("POST", "/admin/plugins", nil, payload, true, true)
 	if err != nil {
 		return nil, err
@@ -1108,9 +1167,11 @@ func handlePluginSetStatus(args []string, c *client) (any, *cliError) {
 
 func handlePluginBuild(args []string, options runtimeOptions, c *client) (any, *cliError) {
 	opts, pos, err := parsePluginRefArgs(args, map[string]optionSpec{
-		"version":   {HasValue: true},
-		"ref":       {HasValue: true},
-		"changelog": {HasValue: true},
+		"version":       {HasValue: true},
+		"ref":           {HasValue: true},
+		"changelog":     {HasValue: true},
+		"github-token":  {HasValue: true},
+		"credential-id": {HasValue: true},
 	})
 	if err != nil {
 		return nil, err
@@ -1120,24 +1181,33 @@ func handlePluginBuild(args []string, options runtimeOptions, c *client) (any, *
 		return nil, err
 	}
 	version := last(opts["version"])
-	if version == "" {
-		return nil, &cliError{Message: "plugin build requires --version", Status: 400, Code: exitValidation}
-	}
 	pluginID, err := resolvePluginID(c, ref)
 	if err != nil {
 		return nil, err
 	}
-	payload := map[string]any{"version": version, "changelog": last(opts["changelog"]), "ref": nullableString(last(opts["ref"]))}
+	payload := map[string]any{"version": nullableString(version), "changelog": last(opts["changelog"]), "ref": nullableString(last(opts["ref"]))}
+	setString(payload, "temporary_token", last(opts["github-token"]))
+	setString(payload, "credential_id", last(opts["credential-id"]))
 	result, err := c.request("POST", "/admin/plugins/"+pluginID+"/build", nil, payload, true, true)
 	if err != nil {
 		return nil, err
 	}
 	if options.Wait {
-		waitResult, err := waitForPluginVersion(c, pluginID, version, options)
-		if err != nil {
-			return nil, err
+		if version != "" {
+			waitResult, err := waitForPluginVersion(c, pluginID, version, options)
+			if err != nil {
+				return nil, err
+			}
+			result["wait"] = waitResult
+		} else if sourceRef := last(opts["ref"]); sourceRef != "" {
+			waitResult, err := waitForPluginVersionBySourceRef(c, pluginID, sourceRef, options)
+			if err != nil {
+				return nil, err
+			}
+			result["wait"] = waitResult
+		} else {
+			result["wait"] = map[string]any{"status": "skipped", "reason": "pass --version or --ref to wait reliably"}
 		}
-		result["wait"] = waitResult
 	}
 	return result, nil
 }
@@ -1203,6 +1273,8 @@ func dispatchPluginVersion(args []string, options runtimeOptions, c *client) (an
 		return handleVersionSetLatest(args[1:], c)
 	case "set-status":
 		return handleVersionSetStatus(args[1:], c)
+	case "delete":
+		return handleVersionDelete(args[1:], options, c)
 	case "scan":
 		return dispatchVersionScan(args[1:], options, c)
 	}
@@ -1286,6 +1358,17 @@ func handleVersionSetStatus(args []string, c *client) (any, *cliError) {
 		return nil, err
 	}
 	return c.request("PUT", "/admin/plugins/"+pluginID+"/versions/"+versionID+"/status", nil, map[string]string{"status": status}, true, true)
+}
+
+func handleVersionDelete(args []string, options runtimeOptions, c *client) (any, *cliError) {
+	if !options.Yes {
+		return nil, &cliError{Message: "destructive action requires --yes", Status: 400, Code: exitConfirmationRequired}
+	}
+	pluginID, versionID, err := resolvePluginAndVersion(c, args)
+	if err != nil {
+		return nil, err
+	}
+	return c.request("DELETE", "/admin/plugins/"+pluginID+"/versions/"+versionID, nil, nil, true, true)
 }
 
 func dispatchVersionScan(args []string, options runtimeOptions, c *client) (any, *cliError) {
@@ -1647,6 +1730,44 @@ func waitForPluginVersion(c *client, pluginRef string, versionRef string, option
 	}
 }
 
+func waitForPluginVersionBySourceRef(c *client, pluginRef string, sourceRef string, options runtimeOptions) (map[string]any, *cliError) {
+	deadline := time.Now().Add(options.WaitTimeout)
+	var lastDetail map[string]any
+	var lastVersion map[string]any
+	for {
+		detail, err := getPluginDetail(c, pluginRef)
+		if err != nil {
+			if err.Code != exitNotFound || time.Now().After(deadline) {
+				return nil, err
+			}
+		} else {
+			lastDetail = detail
+			version, found := pickWaitVersionBySourceRef(detail, sourceRef)
+			if found {
+				lastVersion = version
+				switch stringField(version, "build_status") {
+				case "success":
+					return map[string]any{"status": "success", "plugin": detail, "version": version}, nil
+				case "failed":
+					return nil, &cliError{
+						Message: "Build failed",
+						Code:    exitGeneral,
+						Detail:  map[string]any{"plugin": detail, "version": version, "build_log": version["build_log"]},
+					}
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return nil, &cliError{
+				Message: "wait timeout",
+				Code:    exitWaitTimeout,
+				Detail:  map[string]any{"plugin": lastDetail, "version": lastVersion, "source_ref": sourceRef},
+			}
+		}
+		time.Sleep(options.WaitInterval)
+	}
+}
+
 func waitForScanProviders(c *client, pluginRef string, versionRef string, providers []string, options runtimeOptions) (map[string]any, *cliError) {
 	deadline := time.Now().Add(options.WaitTimeout)
 	var lastDetail map[string]any
@@ -1782,6 +1903,20 @@ func pickWaitVersion(detail map[string]any, versionRef string) (map[string]any, 
 	return nil, false
 }
 
+func pickWaitVersionBySourceRef(detail map[string]any, sourceRef string) (map[string]any, bool) {
+	raw, _ := detail["versions"].([]any)
+	for _, item := range raw {
+		version, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if stringField(version, "source_ref") == sourceRef {
+			return version, true
+		}
+	}
+	return nil, false
+}
+
 func inferPluginKeyFromRepo(repoURL string) string {
 	parsed, err := url.Parse(repoURL)
 	if err != nil {
@@ -1822,6 +1957,17 @@ func setString(payload map[string]any, key string, value string) {
 	if value != "" {
 		payload[key] = value
 	}
+}
+
+func parseBoolDefault(value string, fallback bool) bool {
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func splitCSV(value string) []string {

@@ -38,6 +38,7 @@ The CLI covers the administrator workflows needed to operate AstrBot Community P
 | Plugin-key resolution | Supported | Non-UUID refs query admin plugin list and require exact key match. |
 | Explicit `--id` | Supported | Works anywhere a plugin ref is accepted. |
 | Async wait | Supported | Polls plugin detail and build/scan state; timeout exits 5. |
+| Repository inspection | Supported | `plugin inspect-repo` and `plugin resolve-ref` call backend Git provider APIs. |
 | `plugin submit --wait` | Supported | Most reliable with explicit `--plugin-key`. |
 | Multipart upload | Supported | `plugin upload` and `plugin version upload`. |
 | Version name to UUID | Supported | Version commands resolve version names or IDs. |
@@ -68,6 +69,8 @@ acprctl
 ├── worker status
 ├── plugin list
 ├── plugin show
+├── plugin inspect-repo
+├── plugin resolve-ref
 ├── plugin submit
 ├── plugin upload
 ├── plugin update
@@ -79,6 +82,7 @@ acprctl
 ├── plugin version upload
 ├── plugin version set-latest
 ├── plugin version set-status
+├── plugin version delete
 ├── plugin version scan run
 ├── plugin version scan skip
 ├── review list

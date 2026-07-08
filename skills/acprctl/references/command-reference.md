@@ -95,6 +95,8 @@ acprctl
 ├── worker status
 ├── plugin list
 ├── plugin show
+├── plugin inspect-repo
+├── plugin resolve-ref
 ├── plugin submit
 ├── plugin upload
 ├── plugin update
@@ -106,6 +108,7 @@ acprctl
 ├── plugin version upload
 ├── plugin version set-latest
 ├── plugin version set-status
+├── plugin version delete
 ├── plugin version scan run
 ├── plugin version scan skip
 ├── review list
@@ -135,6 +138,31 @@ acprctl plugin show astrbot-plugin-example
 acprctl plugin show --id 11111111-1111-1111-1111-111111111111
 ```
 
+Inspect a GitHub repository before submitting it:
+
+```bash
+acprctl plugin inspect-repo \
+  --repo-url https://github.com/org/repo \
+  [--ref-type default|branch|tag|commit] \
+  [--ref main] \
+  [--include-refs true|false] \
+  [--github-token '<github-token>'] \
+  [--credential-id <stored-credential-id>]
+```
+
+Resolve one selected ref without loading branch and tag lists:
+
+```bash
+acprctl plugin resolve-ref \
+  --repo-url https://github.com/org/repo \
+  [--ref-type default|branch|tag|commit] \
+  [--ref main] \
+  [--github-token '<github-token>'] \
+  [--credential-id <stored-credential-id>]
+```
+
+Use `inspect-repo` for first-time submission planning. Use `resolve-ref` when the agent only needs the selected commit, metadata preview, and duplicate-match result. `--github-token` is a per-request GitHub access token and is different from global `--token`, which is the registry admin bearer token.
+
 Submit a Git repository:
 
 ```bash
@@ -143,10 +171,14 @@ acprctl plugin submit \
   [--version v1.0.0] \
   [--ref main] \
   [--changelog "..."] \
+  [--github-token '<github-token>'] \
+  [--credential-id <stored-credential-id>] \
   [--plugin-key astrbot-plugin-example] \
   [--wait] \
   [--wait-timeout 300s]
 ```
+
+For Git submissions, omitting `--version` keeps the version from `metadata.yaml`. Providing `--version` overrides the registry version and rewrites the built artifact's `metadata.yaml` `version` field to the same value. `--changelog` stores release notes on the registry version record; it does not modify source files.
 
 Upload a plugin zip:
 
@@ -172,6 +204,8 @@ Delete:
 acprctl plugin delete <plugin-key|id> --yes
 ```
 
+This deletes the plugin record, all version records, and all version artifacts.
+
 Set status:
 
 ```bash
@@ -184,11 +218,15 @@ Build:
 
 ```bash
 acprctl plugin build <plugin-key|id> \
-  --version v1.0.0 \
+  [--version v1.0.0] \
   [--ref main] \
   [--changelog "..."] \
+  [--github-token '<github-token>'] \
+  [--credential-id <stored-credential-id>] \
   [--wait]
 ```
+
+For Git builds, omitting `--version` keeps the version from the selected commit's `metadata.yaml`. Providing `--version` rewrites the packaged `metadata.yaml` version. Use `--changelog` to attach notes to that version record.
 
 Scan:
 
@@ -228,6 +266,12 @@ acprctl plugin version set-status <plugin-key|id> \
   --status active|draft|deprecated|deleted
 ```
 
+Delete one version and its artifact:
+
+```bash
+acprctl plugin version delete <plugin-key|id> --version v1.0.0 --yes
+```
+
 Run or skip provider scans:
 
 ```bash
@@ -262,6 +306,7 @@ acprctl stats
 acprctl cache refresh
 acprctl config list
 acprctl config set --key PUBLIC_CACHE_MAX_AGE --value 60
+acprctl config set --key GITHUB_TOKEN --value '<github-token>'
 acprctl config set --key A --value one --key B --value two
 acprctl config providers list
 acprctl config providers enable clamav
@@ -274,7 +319,7 @@ Clear an override:
 acprctl config set --key PUBLIC_CACHE_MAX_AGE --value ''
 ```
 
-Sensitive config values are redacted in `config list`; use `sensitive_status` to see whether they are configured.
+Sensitive config values are redacted in `config list`; use `sensitive_status` to see whether they are configured. `GITHUB_TOKEN` is a sensitive runtime key used as the global fallback for GitHub repository inspection, ref lookup, size preflight, and clone when no per-request token is supplied.
 
 `config providers` manages `SCAN_ENABLED_PROVIDERS` without requiring the caller to rewrite the full comma-separated value. Supported providers are `virustotal`, `llm_agent`, and `clamav`.
 

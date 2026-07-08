@@ -138,6 +138,26 @@ func TestDeleteRequiresYesBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestVersionDeleteRequiresYesBeforeRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	code, stdout, stderr := runForTest([]string{
+		"plugin", "version", "delete", "astrbot-plugin-demo",
+		"--version", "v1.0.0",
+		"--server-url", server.URL,
+		"--token", "token",
+	})
+	if stdout != "" {
+		t.Fatalf("stdout=%s", stdout)
+	}
+	if code != exitConfirmationRequired {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+}
+
 func TestIDFlagReplacesPluginPositional(t *testing.T) {
 	pluginID := "11111111-1111-1111-1111-111111111111"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -430,6 +450,253 @@ func TestConfigProvidersRejectsUnsupportedProvider(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "unsupported scan provider") {
 		t.Fatalf("unexpected stderr: %s", stderr)
+	}
+}
+
+func TestRepoInspectSendsProviderPayload(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/admin/plugins/inspect-repo" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer admin-token" {
+			t.Fatalf("missing auth header: %q", r.Header.Get("Authorization"))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repo_url":          body["repo_url"],
+			"selected_ref_type": body["ref_type"],
+			"selected_ref":      body["ref"],
+		})
+	}))
+	defer server.Close()
+
+	code, stdout, stderr := runForTest([]string{
+		"plugin", "inspect-repo",
+		"--repo-url", "https://github.com/org/repo",
+		"--ref-type", "branch",
+		"--ref", "main",
+		"--github-token", "github-token",
+		"--credential-id", "repo-credential",
+		"--include-refs", "false",
+		"--server-url", server.URL,
+		"--token", "admin-token",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if body["repo_url"] != "https://github.com/org/repo" ||
+		body["ref_type"] != "branch" ||
+		body["ref"] != "main" ||
+		body["temporary_token"] != "github-token" ||
+		body["credential_id"] != "repo-credential" ||
+		body["include_refs"] != false {
+		t.Fatalf("unexpected body: %v", body)
+	}
+	if !strings.Contains(stdout, `"selected_ref": "main"`) {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestRepoResolveSendsMinimalPayload(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/admin/plugins/resolve-ref" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"selected_ref_type": "default",
+			"selected_ref":      "main",
+		})
+	}))
+	defer server.Close()
+
+	code, stdout, stderr := runForTest([]string{
+		"plugin", "resolve-ref",
+		"--repo-url", "https://github.com/org/repo",
+		"--server-url", server.URL,
+		"--token", "admin-token",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if body["repo_url"] != "https://github.com/org/repo" {
+		t.Fatalf("unexpected body: %v", body)
+	}
+	if _, ok := body["include_refs"]; ok {
+		t.Fatalf("resolve-ref should not send include_refs: %v", body)
+	}
+	if !strings.Contains(stdout, `"selected_ref_type": "default"`) {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestPluginSubmitSendsGitCredentialsAndChangelog(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/admin/plugins" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "queued", "plugin_id": "plugin-1"})
+	}))
+	defer server.Close()
+
+	code, _, stderr := runForTest([]string{
+		"plugin", "submit",
+		"--repo-url", "https://github.com/org/repo",
+		"--version", "v1.2.3",
+		"--ref", "main",
+		"--changelog", "release notes",
+		"--github-token", "github-token",
+		"--credential-id", "repo-credential",
+		"--server-url", server.URL,
+		"--token", "admin-token",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if body["version"] != "v1.2.3" ||
+		body["ref"] != "main" ||
+		body["changelog"] != "release notes" ||
+		body["temporary_token"] != "github-token" ||
+		body["credential_id"] != "repo-credential" {
+		t.Fatalf("unexpected body: %v", body)
+	}
+}
+
+func TestPluginBuildSendsGitCredentialsAndChangelog(t *testing.T) {
+	pluginID := "11111111-1111-1111-1111-111111111111"
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/admin/plugins":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{{"id": pluginID, "plugin_key": "astrbot-plugin-demo"}},
+				"total": 1, "page": 1, "page_size": 100,
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/plugins/"+pluginID+"/build":
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "queued"})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	code, _, stderr := runForTest([]string{
+		"plugin", "build", "astrbot-plugin-demo",
+		"--version", "v1.2.4",
+		"--ref", "main",
+		"--changelog", "build notes",
+		"--github-token", "github-token",
+		"--credential-id", "repo-credential",
+		"--server-url", server.URL,
+		"--token", "admin-token",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if body["version"] != "v1.2.4" ||
+		body["ref"] != "main" ||
+		body["changelog"] != "build notes" ||
+		body["temporary_token"] != "github-token" ||
+		body["credential_id"] != "repo-credential" {
+		t.Fatalf("unexpected body: %v", body)
+	}
+}
+
+func TestPluginBuildAllowsMetadataVersionDefault(t *testing.T) {
+	pluginID := "11111111-1111-1111-1111-111111111111"
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/admin/plugins":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{{"id": pluginID, "plugin_key": "phimg"}},
+				"total": 1, "page": 1, "page_size": 100,
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/plugins/"+pluginID+"/build":
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "queued"})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	code, _, stderr := runForTest([]string{
+		"plugin", "build", "phimg",
+		"--ref", "8eb1f0523b6f5accefa301369719792ca66e2611",
+		"--changelog", "metadata version default",
+		"--server-url", server.URL,
+		"--token", "admin-token",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if body["version"] != nil ||
+		body["ref"] != "8eb1f0523b6f5accefa301369719792ca66e2611" ||
+		body["changelog"] != "metadata version default" {
+		t.Fatalf("unexpected body: %v", body)
+	}
+}
+
+func TestVersionDeleteSendsRequest(t *testing.T) {
+	pluginID := "11111111-1111-1111-1111-111111111111"
+	versionID := "22222222-2222-2222-2222-222222222222"
+	seen := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/admin/plugins":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{{"id": pluginID, "plugin_key": "astrbot-plugin-demo"}},
+				"total": 1, "page": 1, "page_size": 100,
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/admin/plugins/"+pluginID+"/versions":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"id": versionID, "version": "v1.0.0",
+			}})
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/admin/plugins/"+pluginID+"/versions/"+versionID:
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	code, stdout, stderr := runForTest([]string{
+		"plugin", "version", "delete", "astrbot-plugin-demo",
+		"--version", "v1.0.0",
+		"--yes",
+		"--server-url", server.URL,
+		"--token", "token",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"status": "deleted"`) {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+	want := []string{
+		"GET /api/v1/admin/plugins",
+		"GET /api/v1/admin/plugins/" + pluginID + "/versions",
+		"DELETE /api/v1/admin/plugins/" + pluginID + "/versions/" + versionID,
+	}
+	if strings.Join(seen, ",") != strings.Join(want, ",") {
+		t.Fatalf("seen=%v want=%v", seen, want)
 	}
 }
 

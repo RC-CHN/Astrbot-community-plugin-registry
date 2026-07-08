@@ -36,7 +36,7 @@ Expected help includes at least:
 
 ```text
 config list|set|providers
-plugin list|show|submit|upload|update|delete|set-status|build|scan|version
+plugin list|show|inspect-repo|resolve-ref|submit|upload|update|delete|set-status|build|scan|version
 review list|approve|publish|skip|disable|delete
 ```
 
@@ -133,6 +133,7 @@ Use `acprctl config set` for writable runtime overrides:
 ```bash
 acprctl config set --key PUBLIC_CACHE_MAX_AGE --value 60
 acprctl config set --key WEBHOOK_AUTO_VERSION --value auto
+acprctl config set --key GITHUB_TOKEN --value '<github-token>'
 ```
 
 Clear a runtime override:
@@ -140,6 +141,8 @@ Clear a runtime override:
 ```bash
 acprctl config set --key PUBLIC_CACHE_MAX_AGE --value ''
 ```
+
+`GITHUB_TOKEN` is optional but recommended for production instances that import many GitHub repositories. It avoids anonymous GitHub API rate limits for repository inspection and Git preflight. It is redacted in `config list`; check `sensitive_status.GITHUB_TOKEN` instead of printing the value.
 
 ## Scan Provider Management
 

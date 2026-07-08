@@ -221,7 +221,7 @@ Interpretation:
 Recovery:
 
 ```bash
-acprctl plugin build <plugin-key-or-id> --version <version> --wait --wait-timeout 600s
+acprctl plugin build <plugin-key-or-id> --wait --wait-timeout 600s
 acprctl plugin scan <plugin-key-or-id> --version <version> --wait --wait-timeout 600s
 ```
 
@@ -256,15 +256,33 @@ Common causes:
 - Release zip exceeds configured size limits.
 - Object storage credentials or bucket access are broken.
 
+Before retrying a Git build, inspect or resolve the repository through the backend provider:
+
+```bash
+acprctl --format json plugin inspect-repo \
+  --repo-url <github-repo-url> \
+  --ref-type branch \
+  --ref main
+
+acprctl --format json plugin resolve-ref \
+  --repo-url <github-repo-url> \
+  --ref-type branch \
+  --ref main
+```
+
+If GitHub returns a rate-limit or access-denied error, set a global `GITHUB_TOKEN` in runtime config or pass a temporary `--github-token` to `inspect-repo`, `resolve-ref`, `plugin submit`, or `plugin build`. Do not confuse `--github-token` with global `--token`; `--token` authenticates to the registry itself.
+
 Retry with explicit ref and longer wait:
 
 ```bash
 acprctl plugin build <plugin-key-or-id> \
-  --version <version> \
   --ref main \
+  --changelog "Retry build" \
   --wait \
   --wait-timeout 600s
 ```
+
+For Git submit/build, omit `--version` to keep the selected commit's `metadata.yaml` version. Add `--version <version>` only when the operator intentionally wants the packaged metadata version rewritten.
 
 ## Scan Failures
 
@@ -279,6 +297,7 @@ Check `sensitive_status` and `effective_values` for:
 
 ```text
 SCAN_ENABLED_PROVIDERS
+GITHUB_TOKEN
 VIRUSTOTAL_API_KEY
 LLM_AGENT_BASE_URL
 LLM_AGENT_MODEL
@@ -287,6 +306,14 @@ CLAMAV_HOST
 CLAMAV_PORT
 SCAN_PASS_WHEN_UNCONFIGURED
 ```
+
+If GitHub repository inspection returns an API rate-limit error, configure a global token:
+
+```bash
+acprctl config set --key GITHUB_TOKEN --value '<github-token>'
+```
+
+Then re-check `sensitive_status.GITHUB_TOKEN`. Do not print the token value.
 
 Run all providers:
 
@@ -420,6 +447,16 @@ Delete a plugin:
 ```bash
 acprctl plugin delete <plugin-key-or-id> --yes
 ```
+
+This removes the plugin, all version records, and all version artifacts.
+
+Delete one version:
+
+```bash
+acprctl plugin version delete <plugin-key-or-id> --version <version> --yes
+```
+
+This removes only the selected version record and artifact.
 
 Delete from review queue:
 
