@@ -15,6 +15,7 @@
             <div class="scan-detail-title">版本 {{ version.version }}</div>
             <div class="scan-detail-subtitle">
               <span>{{ version.source_type }}</span>
+              <span v-if="version.source_ref">ref: {{ version.source_ref }}</span>
               <span v-if="version.commit_sha">{{ version.commit_sha.slice(0, 12) }}</span>
               <span v-if="version.scan?.scanned_at">更新于 {{ formatDateTime(version.scan.scanned_at) }}</span>
             </div>

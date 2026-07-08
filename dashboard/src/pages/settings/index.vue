@@ -496,6 +496,16 @@ const editableItems: ConfigItem[] = [
     placeholder: 'http://user:pass@proxy.example:8080',
   },
   {
+    key: 'GITHUB_TOKEN',
+    label: 'GitHub 全局 Token',
+    group: 'git',
+    input: 'text',
+    scope: '即时生效',
+    description: '用于公开仓库预检、Ref 解析和 clone，避免匿名 API 限流；提交时填写的临时 Token 优先生效。',
+    sensitive: true,
+    placeholder: 'github_pat_...',
+  },
+  {
     key: 'SCAN_ENABLED_PROVIDERS',
     label: '启用 provider',
     group: 'scan-policy',

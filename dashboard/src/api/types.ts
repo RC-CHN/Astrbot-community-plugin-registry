@@ -44,7 +44,9 @@ export type VersionSummary = {
   id: string
   version: string
   source_type: 'git_auto' | 'manual_upload'
+  source_ref: string | null
   commit_sha: string | null
+  changelog: string | null
   build_status: BuildStatus
   build_log: string | null
   version_status: VersionStatus
@@ -85,12 +87,93 @@ export type SubmitPluginRequest = {
   ref?: string
   version?: string
   changelog?: string
+  credential_id?: string
+  temporary_token?: string
 }
 
 export type SubmitPluginResponse = {
   plugin_id: string
   version: string
   status: string
+}
+
+export type RepoRefType = 'default' | 'branch' | 'tag' | 'commit'
+
+export type RepoInspectRequest = {
+  repo_url: string
+  provider?: string
+  credential_id?: string
+  temporary_token?: string
+  ref_type?: RepoRefType
+  ref?: string
+  include_refs?: boolean
+}
+
+export type RepoResolveRequest = {
+  repo_url: string
+  provider?: string
+  credential_id?: string
+  temporary_token?: string
+  ref_type?: RepoRefType
+  ref?: string
+}
+
+export type RepoRefOption = {
+  name: string
+  commit_sha: string
+  protected: boolean
+}
+
+export type RepoCommitInfo = {
+  sha: string
+  message: string | null
+  author_name: string | null
+  committed_at: string | null
+}
+
+export type RepoInspectResponse = {
+  provider: string
+  repo_url: string
+  host: string
+  owner: string
+  repo: string
+  private: boolean
+  default_branch: string
+  size_kb: number
+  updated_at: string | null
+  detected_ref_type: 'branch' | 'tag' | 'commit' | null
+  detected_ref: string | null
+  selected_ref_type: RepoRefType
+  selected_ref: string
+  selected_commit: RepoCommitInfo
+  metadata: {
+    name: string
+    plugin_key: string
+    display_name: string | null
+    desc: string
+    author: string
+    version: string
+    repo: string | null
+    tags: string[]
+    astrbot_version: string | null
+  }
+  match: {
+    status: 'new_plugin' | 'new_commit' | 'duplicate_commit'
+    plugin_id: string | null
+    plugin_key: string | null
+    duplicate_version_count: number
+    duplicate_commit_version_id: string | null
+  }
+  branches: RepoRefOption[]
+  tags: RepoRefOption[]
+}
+
+export type RepoResolveResponse = {
+  selected_ref_type: RepoRefType
+  selected_ref: string
+  selected_commit: RepoCommitInfo
+  metadata: RepoInspectResponse['metadata']
+  match: RepoInspectResponse['match']
 }
 
 export type VersionSubmitResponse = {

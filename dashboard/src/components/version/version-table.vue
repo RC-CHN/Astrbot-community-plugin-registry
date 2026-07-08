@@ -38,6 +38,7 @@ const emit = defineEmits<{
   runScanProvider: [version: VersionSummary, provider: string]
   skipScanProvider: [version: VersionSummary, provider: string]
   browseArtifact: [version: VersionSummary]
+  deleteVersion: [version: VersionSummary]
 }>()
 
 const rowKey = (row: VersionSummary) => row.id
@@ -50,14 +51,27 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
     key: 'version',
     render(row) {
       return h('div', { class: 'version-cell' }, [
-        h('div', { class: 'version-name' }, row.version),
+        h('div', { class: 'version-name-group' }, [
+          h('div', { class: 'version-name' }, row.version),
+          h('div', { class: 'version-note' }, 'metadata.yaml 版本'),
+        ]),
         row.is_latest
           ? h(NTag, { type: 'success', size: 'small', round: true }, { default: () => '插件源当前版本' })
           : null,
       ])
     },
   },
-  { title: '来源', key: 'source_type', width: 110 },
+  {
+    title: '来源',
+    key: 'source_type',
+    width: 150,
+    render(row) {
+      return h('div', { class: 'source-cell' }, [
+        h('strong', row.source_type),
+        row.source_ref ? h('span', { class: 'source-ref' }, `ref: ${row.source_ref}`) : null,
+      ])
+    },
+  },
   {
     title: 'Commit',
     key: 'commit_sha',
@@ -121,6 +135,7 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
           emit('runScanProvider', version, provider),
         onSkipScanProvider: (version: VersionSummary, provider: string) =>
           emit('skipScanProvider', version, provider),
+        onDeleteVersion: (version: VersionSummary) => emit('deleteVersion', version),
       })
     },
   },
@@ -138,12 +153,35 @@ function openScanDetail(version: VersionSummary) {
 
 <style>
 .version-cell {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   gap: 8px;
+  min-width: 0;
 }
 
 .version-name {
   font-weight: 600;
+}
+
+.version-name-group,
+.source-cell {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.version-note,
+.source-ref {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-cell strong {
+  color: var(--text-main);
+  font-size: 13px;
 }
 </style>

@@ -34,7 +34,7 @@
         <template #trigger>
           <n-button type="error" secondary>删除</n-button>
         </template>
-        删除后插件和版本会从公开索引移除，确认继续？
+        删除后插件、所有版本记录和对应构建制品都会被删除，确认继续？
       </n-popconfirm>
     </template>
   </page-header>
@@ -104,6 +104,7 @@
             @run-scan-provider="runScanProvider"
             @skip-scan-provider="skipScanProvider"
             @browse-artifact="openArtifactBrowser"
+            @delete-version="deleteVersion"
           />
         </n-tab-pane>
         <n-tab-pane name="metadata" tab="元数据">
@@ -218,6 +219,13 @@ async function deletePlugin() {
   if (!plugin.value) return
   await runAction(() => mutations.deletePlugin.mutateAsync({ pluginId: plugin.value!.id }))
   router.push('/plugins')
+}
+
+async function deleteVersion(version: VersionSummary) {
+  if (!plugin.value) return
+  await runAction(() =>
+    mutations.deleteVersion.mutateAsync({ pluginId: plugin.value!.id, versionId: version.id }),
+  )
 }
 
 function openPublishConfirm() {

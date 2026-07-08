@@ -3,11 +3,14 @@ import { computed, type Ref } from 'vue'
 
 import {
   deletePlugin,
+  deleteVersion,
   getPlugin,
+  inspectRepo,
   listPendingPlugins,
   listPlugins,
   publishVersion,
   refreshCache,
+  resolveRepoRef,
   runVersionScanProvider,
   setLatestVersion,
   skipVersionScanProvider,
@@ -55,6 +58,8 @@ export function usePluginMutations() {
 
   return {
     submit: useMutation({ mutationFn: submitPlugin, onSuccess: invalidatePlugins }),
+    inspectRepo: useMutation({ mutationFn: inspectRepo }),
+    resolveRepoRef: useMutation({ mutationFn: resolveRepoRef }),
     upload: useMutation({ mutationFn: uploadPlugin, onSuccess: invalidatePlugins }),
     updatePluginStatus: useMutation({
       mutationFn: ({ pluginId, status }: Parameters<typeof updatePluginStatus>[0] extends never
@@ -70,6 +75,11 @@ export function usePluginMutations() {
     }),
     deletePlugin: useMutation({
       mutationFn: ({ pluginId }: { pluginId: string }) => deletePlugin(pluginId),
+      onSuccess: invalidatePlugins,
+    }),
+    deleteVersion: useMutation({
+      mutationFn: ({ pluginId, versionId }: { pluginId: string; versionId: string }) =>
+        deleteVersion(pluginId, versionId),
       onSuccess: invalidatePlugins,
     }),
     updateVersionStatus: useMutation({

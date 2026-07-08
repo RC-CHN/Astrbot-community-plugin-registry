@@ -6,6 +6,10 @@ import type {
   PluginListParams,
   PluginListResponse,
   PluginStatus,
+  RepoInspectRequest,
+  RepoInspectResponse,
+  RepoResolveRequest,
+  RepoResolveResponse,
   ReviewStatus,
   SubmitPluginRequest,
   SubmitPluginResponse,
@@ -37,6 +41,20 @@ export function submitPlugin(data: SubmitPluginRequest) {
   })
 }
 
+export function inspectRepo(data: RepoInspectRequest) {
+  return apiRequest<RepoInspectResponse>('/admin/plugins/inspect-repo', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function resolveRepoRef(data: RepoResolveRequest) {
+  return apiRequest<RepoResolveResponse>('/admin/plugins/resolve-ref', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
 export function uploadPlugin(file: File) {
   const body = new FormData()
   body.append('file', file)
@@ -62,6 +80,12 @@ export function updatePluginReviewStatus(pluginId: string, status: PluginStatus,
 
 export function deletePlugin(pluginId: string) {
   return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function deleteVersion(pluginId: string, versionId: string) {
+  return apiRequest<{ status: string }>(`/admin/plugins/${pluginId}/versions/${versionId}`, {
     method: 'DELETE',
   })
 }

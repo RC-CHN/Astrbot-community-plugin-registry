@@ -15,6 +15,7 @@
       <div>
         <span>来源</span>
         <strong>{{ version.source_type }}</strong>
+        <small v-if="version.source_ref">ref: {{ version.source_ref }}</small>
       </div>
       <div>
         <span>Commit</span>
@@ -149,5 +150,15 @@ function emitSkipScanProvider(version: VersionSummary, provider: string) {
   font-size: 13px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.version-meta small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

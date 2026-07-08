@@ -38,12 +38,23 @@
     >
       <n-button size="small" secondary>扫描操作</n-button>
     </n-dropdown>
+
+    <n-popconfirm
+      positive-text="删除版本"
+      negative-text="取消"
+      @positive-click="$emit('delete-version', version)"
+    >
+      <template #trigger>
+        <n-button size="small" type="error" secondary>删除版本</n-button>
+      </template>
+      将删除这个版本记录和对应构建制品；不会删除插件本身。
+    </n-popconfirm>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NButton, NButtonGroup, NDropdown, type DropdownOption } from 'naive-ui'
+import { NButton, NButtonGroup, NDropdown, NPopconfirm, type DropdownOption } from 'naive-ui'
 
 import type { PluginDetail, VersionStatus, VersionSummary } from '@/api/types'
 import { canActivateVersion, getVersionBlockers } from '@/composables/use-plugin-actions'
@@ -67,6 +78,7 @@ const emit = defineEmits<{
   (event: 'rescan', version: VersionSummary): void
   (event: 'run-scan-provider', version: VersionSummary, provider: string): void
   (event: 'skip-scan-provider', version: VersionSummary, provider: string): void
+  (event: 'delete-version', version: VersionSummary): void
 }>()
 
 const activeCheck = computed(() => canActivateVersion(props.version))
