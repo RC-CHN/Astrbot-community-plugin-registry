@@ -129,6 +129,7 @@ async def test_github_webhook_queues_build_for_registered_repo(monkeypatch) -> N
             "plugin_id": str(plugin.id),
             "version": "auto",
             "ref": "main",
+            "changelog": "",
             "user_id": "",
         },
     }
