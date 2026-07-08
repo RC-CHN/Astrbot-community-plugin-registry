@@ -47,13 +47,13 @@ const scanDetailVersion = ref<VersionSummary | null>(null)
 
 const columns = computed<DataTableColumns<VersionSummary>>(() => [
   {
-    title: '版本',
+    title: '版本号',
     key: 'version',
     render(row) {
       return h('div', { class: 'version-cell' }, [
         h('div', { class: 'version-name-group' }, [
           h('div', { class: 'version-name' }, row.version),
-          h('div', { class: 'version-note' }, 'metadata.yaml 版本'),
+          h('div', { class: 'version-note' }, '来自 metadata.yaml，可重复'),
         ]),
         row.is_latest
           ? h(NTag, { type: 'success', size: 'small', round: true }, { default: () => '插件源当前版本' })
@@ -68,12 +68,12 @@ const columns = computed<DataTableColumns<VersionSummary>>(() => [
     render(row) {
       return h('div', { class: 'source-cell' }, [
         h('strong', row.source_type),
-        row.source_ref ? h('span', { class: 'source-ref' }, `ref: ${row.source_ref}`) : null,
+        row.source_ref ? h('span', { class: 'source-ref' }, `构建 ref: ${row.source_ref}`) : null,
       ])
     },
   },
   {
-    title: 'Commit',
+    title: '制品 Commit',
     key: 'commit_sha',
     width: 170,
     render: (row) => h(CopyableText, { value: row.commit_sha }),

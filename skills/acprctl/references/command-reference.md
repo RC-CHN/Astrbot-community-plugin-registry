@@ -178,7 +178,7 @@ acprctl plugin submit \
   [--wait-timeout 300s]
 ```
 
-For Git submissions, omitting `--version` keeps the version from `metadata.yaml`. Providing `--version` overrides the registry version and rewrites the built artifact's `metadata.yaml` `version` field to the same value. `--changelog` stores release notes on the registry version record; it does not modify source files.
+For Git submissions, omitting `--version` keeps the version from the selected commit's `metadata.yaml`. Providing `--version` overrides the registry version label and rewrites the built artifact's `metadata.yaml` `version` field to the same value. The commit SHA is the artifact identity: the same plugin commit is not built twice, while different commits may share the same metadata version. `--changelog` stores release notes on the registry version record; it does not modify source files.
 
 Upload a plugin zip:
 
@@ -226,7 +226,9 @@ acprctl plugin build <plugin-key|id> \
   [--wait]
 ```
 
-For Git builds, omitting `--version` keeps the version from the selected commit's `metadata.yaml`. Providing `--version` rewrites the packaged `metadata.yaml` version. Use `--changelog` to attach notes to that version record.
+For Git builds, omitting `--version` keeps the version from the selected commit's `metadata.yaml`. Providing `--version` rewrites the packaged `metadata.yaml` version. The selected commit SHA identifies the artifact, so retrying the same plugin commit is a duplicate even when the metadata version is not unique. Use `--changelog` to attach notes to that version record.
+
+For commands that operate on an existing version, `--version` accepts either the metadata version string or the version record id. If multiple records share the same metadata version, use the id from `plugin version list --format json` so the command targets the intended commit.
 
 Scan:
 

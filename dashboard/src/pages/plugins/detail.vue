@@ -76,6 +76,10 @@
           <h2>发布阻断</h2>
           <div class="concept-list">
             <div>
+              <strong>版本号 / Commit</strong>
+              <span>版本号来自 metadata.yaml，可有多个不同 commit 使用同一版本号；commit 是制品身份，同一 commit 不会重复构建。</span>
+            </div>
+            <div>
               <strong>审核通过</strong>
               <span>只确认插件进入可管理状态，不会自动公开任何版本。</span>
             </div>

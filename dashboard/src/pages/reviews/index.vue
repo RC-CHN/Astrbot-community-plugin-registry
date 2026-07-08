@@ -60,7 +60,7 @@
           <section class="version-section">
             <h3 class="section-title">版本列表</h3>
             <p class="section-note">
-              版本先完成构建和扫描，再标记为发布候选；只有设为插件源当前版本后，AstrBot 插件源才会返回这个版本。
+              版本号来自 metadata.yaml；commit 是制品身份，同一 commit 不重复构建。版本先完成构建和扫描，再标记为发布候选；只有设为插件源当前版本后，AstrBot 插件源才会返回这个版本。
             </p>
             <div v-if="plugin.versions.length" class="review-version-list">
               <version-summary-card

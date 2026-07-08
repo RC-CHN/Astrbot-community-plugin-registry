@@ -282,7 +282,9 @@ acprctl plugin build <plugin-key-or-id> \
   --wait-timeout 600s
 ```
 
-For Git submit/build, omit `--version` to keep the selected commit's `metadata.yaml` version. Add `--version <version>` only when the operator intentionally wants the packaged metadata version rewritten.
+For Git submit/build, omit `--version` to keep the selected commit's `metadata.yaml` version. Add `--version <version>` only when the operator intentionally wants the packaged metadata version rewritten. The commit SHA is the artifact identity: a duplicate-commit error means that exact plugin commit already has a version record, even if the metadata version is reused by other commits.
+
+If a plugin has multiple records with the same metadata version, inspect with `acprctl --format json plugin version list <plugin-key-or-id>` and pass the target version record id to `--version` for scan, publish, status, latest, or delete operations.
 
 ## Scan Failures
 

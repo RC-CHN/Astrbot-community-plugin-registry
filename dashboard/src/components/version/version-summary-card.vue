@@ -15,10 +15,10 @@
       <div>
         <span>来源</span>
         <strong>{{ version.source_type }}</strong>
-        <small v-if="version.source_ref">ref: {{ version.source_ref }}</small>
+        <small v-if="version.source_ref">构建 ref: {{ version.source_ref }}</small>
       </div>
       <div>
-        <span>Commit</span>
+        <span>制品 Commit</span>
         <copyable-text :value="version.commit_sha" :max="24" />
       </div>
       <div>

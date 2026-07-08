@@ -67,14 +67,14 @@
               <small>{{ inspection.host }}</small>
             </div>
             <div>
-              <span>最终 Commit</span>
+              <span>制品 Commit</span>
               <strong>{{ shortSha(inspection.selected_commit.sha) }}</strong>
               <small>{{ inspection.selected_commit.message || '无提交信息' }}</small>
             </div>
             <div>
-              <span>metadata 版本</span>
+              <span>版本号</span>
               <strong>{{ inspection.metadata.version }}</strong>
-              <small>{{ inspection.metadata.plugin_key }}</small>
+              <small>来自 metadata.yaml</small>
             </div>
           </div>
 
@@ -82,14 +82,14 @@
             私有仓库源码会被打包成插件制品；发布后公开插件源会返回该制品下载地址。
           </n-alert>
           <n-alert v-if="inspection.match.status === 'duplicate_commit'" type="warning" :bordered="false">
-            这个 commit 已经存在，通常不需要重复提交。
+            这个 commit 已经构建过。同一插件的同一 commit 只保留一份制品，请选择新的 commit。
           </n-alert>
           <n-alert
             v-else-if="inspection.match.duplicate_version_count > 0"
             type="info"
             :bordered="false"
           >
-            已存在 {{ inspection.match.duplicate_version_count }} 个相同 metadata 版本；本次会按 commit 单独保存。
+            已存在 {{ inspection.match.duplicate_version_count }} 个相同版本号；版本号来自 metadata.yaml，可对应多个不同 commit。
           </n-alert>
         </section>
 
@@ -167,7 +167,7 @@
 
               <div class="resolved-commit" :class="{ loading: refBusy }">
                 <div class="resolved-head">
-                  <span>已解析 Commit</span>
+                  <span>已解析制品 Commit</span>
                   <n-tag v-if="refBusy" size="small" round>解析中</n-tag>
                 </div>
                 <strong>{{ shortSha(inspection.selected_commit.sha) }}</strong>
@@ -177,7 +177,7 @@
               <div class="ref-submit-mode">
                 <div>
                   <strong>提交构建使用</strong>
-                  <p>{{ lockToCommit ? '使用已解析 commit SHA，构建结果可复现。' : '使用当前 Ref 名称，后续提交可能影响构建内容。' }}</p>
+                  <p>{{ lockToCommit ? '使用已解析 commit SHA 作为制品身份，构建结果可复现。' : '使用当前 Ref 名称，后续提交可能影响构建内容。' }}</p>
                 </div>
                 <n-switch v-model:value="lockToCommit">
                   <template #checked>固定</template>
@@ -196,16 +196,16 @@
         <section v-if="inspection" class="submit-section">
           <div class="section-head">
             <div>
-              <h3>构建信息</h3>
-              <p>留空使用 metadata.yaml；填写后会改写构建包内 metadata.yaml 的 version 字段。</p>
+              <h3>版本与记录</h3>
+              <p>版本号默认读取所选 commit 的 metadata.yaml；commit 是制品身份，同一 commit 不重复构建。</p>
             </div>
           </div>
           <n-form :model="repoForm" label-placement="top" class="submit-form">
-            <n-form-item label="覆盖 metadata 版本">
-              <n-input v-model:value="repoForm.version" placeholder="留空保持仓库 metadata.yaml 版本" />
+            <n-form-item label="覆盖版本号（可选）">
+              <n-input v-model:value="repoForm.version" placeholder="留空使用 metadata.yaml 中的 version" />
             </n-form-item>
             <n-form-item label="Changelog">
-              <n-input v-model:value="repoForm.changelog" type="textarea" :rows="3" placeholder="写入当前版本记录" />
+              <n-input v-model:value="repoForm.changelog" type="textarea" :rows="3" placeholder="写入该 commit 对应版本记录" />
             </n-form-item>
           </n-form>
         </section>

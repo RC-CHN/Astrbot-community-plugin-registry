@@ -32,7 +32,7 @@ Inspect GitHub repositories and submit builds through the backend provider:
 ./acprctl plugin build astrbot-plugin-example --ref main --changelog "Build selected ref"
 ```
 
-For Git submit/build, omit `--version` to keep the selected commit's `metadata.yaml` version. Passing `--version` rewrites the packaged metadata version. `--changelog` is stored on the registry version record.
+For Git submit/build, the registry version label comes from the selected commit's `metadata.yaml` when `--version` is omitted. Passing `--version` intentionally rewrites the packaged metadata version. The commit SHA is the artifact identity: the same plugin commit is not rebuilt twice, while multiple different commits may share the same metadata version. `--changelog` is stored on the registry version record.
 
 The binary has no third-party Go dependencies. It reads config from
 `~/.config/acprctl/config.yaml` by default and also supports `ACPRCTL_*`

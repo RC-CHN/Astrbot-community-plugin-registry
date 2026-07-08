@@ -52,7 +52,6 @@ Submit from a Git repository:
 ```bash
 acprctl plugin submit \
   --repo-url https://github.com/org/astrbot_plugin_example \
-  --version v1.0.0 \
   --ref main \
   --changelog "Initial import" \
   --plugin-key astrbot-plugin-example \
@@ -64,10 +63,14 @@ Use `--plugin-key` with `--wait`; the backend submit response may only say queue
 
 Version and changelog semantics:
 
-- If `--version` is omitted, the backend uses the repository `metadata.yaml` version.
+- If `--version` is omitted, the backend uses the selected commit's `metadata.yaml` version as the registry version label.
 - If `--version` is provided for Git submit/build, the backend rewrites the built artifact's `metadata.yaml` `version` field to match it.
+- The commit SHA is the artifact identity. The same plugin commit is not built twice; choose a new commit if the backend reports a duplicate commit.
+- Multiple different commits may share the same metadata version. Do not assume `version` uniquely identifies source content.
 - `--changelog` is stored on the registry version record. It is not written into plugin source files.
 - Use `--github-token` only for a temporary per-request GitHub token. The global registry bearer token remains `--token`.
+
+For commands that select an existing version (`scan`, `review publish`, `version set-status`, `version delete`, and similar), `--version` accepts either the metadata version string or the version record id. When a plugin has multiple records with the same metadata version, use the version record id from `plugin version list --format json` to avoid selecting the wrong commit.
 
 After the wait succeeds:
 
@@ -98,7 +101,7 @@ acprctl plugin build astrbot-plugin-example \
   --wait-timeout 300s
 ```
 
-Omit `--version` to keep the selected commit's `metadata.yaml` version. Add `--version v1.1.0` only when the operator intentionally wants to rewrite the packaged metadata version. If the plugin repository is private, add `--github-token '<github-token>'` or use a stored credential id when available.
+Omit `--version` to keep the selected commit's `metadata.yaml` version. Add `--version v1.1.0` only when the operator intentionally wants to rewrite the packaged metadata version. The selected commit is still the artifact identity, so rebuilding the same plugin commit is treated as a duplicate even if the metadata version is shared by other commits. If the plugin repository is private, add `--github-token '<github-token>'` or use a stored credential id when available.
 
 Then inspect:
 
