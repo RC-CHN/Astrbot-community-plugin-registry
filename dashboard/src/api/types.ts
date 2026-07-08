@@ -150,3 +150,67 @@ export type ApiError = {
   message: string
   detail?: unknown
 }
+
+export type WorkerTaskStatus =
+  | 'queued'
+  | 'delayed'
+  | 'running'
+  | 'retrying'
+  | 'succeeded'
+  | 'failed'
+  | 'dead'
+  | 'cancelled'
+
+export type WorkerTaskSummary = {
+  id: string
+  task_type: string
+  status: WorkerTaskStatus
+  plugin_id: string | null
+  version_id: string | null
+  provider: string | null
+  payload_summary: Record<string, unknown>
+  attempts: number
+  max_attempts: number
+  queued_at: string | null
+  started_at: string | null
+  finished_at: string | null
+  next_run_at: string | null
+  worker_id: string | null
+  duration_ms: number | null
+  last_error: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type WorkerTaskListParams = {
+  status?: WorkerTaskStatus | ''
+  type?: string
+  plugin_id?: string
+  version_id?: string
+  page?: number
+  page_size?: number
+}
+
+export type WorkerTaskListResponse = {
+  items: WorkerTaskSummary[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type WorkerHeartbeat = {
+  worker_id: string
+  hostname?: string | null
+  pid?: number | null
+  heartbeat_at?: string | null
+  current_task_id?: string | null
+}
+
+export type WorkerStatusResponse = {
+  redis_connected: boolean
+  queue_length: number
+  delayed_length: number
+  dead_letter_length: number
+  active_workers: WorkerHeartbeat[]
+  tasks_by_status: Record<WorkerTaskStatus | string, number>
+}

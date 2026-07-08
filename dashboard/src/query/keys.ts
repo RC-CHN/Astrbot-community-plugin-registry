@@ -1,4 +1,4 @@
-import type { PluginListParams } from '@/api/types'
+import type { PluginListParams, WorkerTaskListParams } from '@/api/types'
 
 export const queryKeys = {
   plugins: {
@@ -16,5 +16,9 @@ export const queryKeys = {
   },
   config: {
     system: () => ['config', 'system'] as const,
+  },
+  tasks: {
+    list: (params: WorkerTaskListParams) => ['tasks', 'list', params] as const,
+    status: () => ['tasks', 'worker-status'] as const,
   },
 }

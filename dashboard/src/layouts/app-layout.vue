@@ -75,7 +75,7 @@ const icon = (component: unknown) => () => h(NIcon, null, { default: () => h(com
 const menuOptions: MenuOption[] = [
   { label: '插件', key: '/plugins', icon: icon(Shield) },
   { label: '待审核', key: '/reviews', icon: icon(ClipboardCheck) },
-  { label: '构建', key: '/builds', icon: icon(Hammer) },
+  { label: '任务', key: '/builds', icon: icon(Hammer) },
   { label: '插件源', key: '/source', icon: icon(FileJson) },
   { label: '配置', key: '/settings', icon: icon(Settings) },
   { label: '用户', key: '/users', icon: icon(Users) },
