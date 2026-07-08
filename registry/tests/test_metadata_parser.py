@@ -4,6 +4,7 @@ from pathlib import Path
 from astrbot_registry.utils.metadata_parser import (
     PluginMetadata,
     infer_plugin_key,
+    overwrite_metadata_version,
     parse_metadata_yaml,
 )
 
@@ -48,3 +49,15 @@ def test_parse_metadata_yaml() -> None:
 
 def test_infer_plugin_key() -> None:
     assert infer_plugin_key("astrbot_plugin_nezhatz") == "astrbot-plugin-nezhatz"
+
+
+def test_overwrite_metadata_version() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "metadata.yaml"
+        path.write_text(SAMPLE_METADATA, encoding="utf-8")
+
+        overwrite_metadata_version(path, "v2.0.0")
+        meta = parse_metadata_yaml(path)
+
+    assert meta.version == "v2.0.0"
+    assert meta.name == "astrbot_plugin_nezhatz"

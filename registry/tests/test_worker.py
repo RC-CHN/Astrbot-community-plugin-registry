@@ -94,6 +94,28 @@ async def test_requeue_task_moves_exhausted_task_to_dead_letter(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
+async def test_requeue_task_redacts_temporary_token_in_dead_letter(monkeypatch) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis():
+        return redis
+
+    monkeypatch.setattr(task_queue, "get_redis", fake_get_redis)
+    task = create_task_envelope(
+        "submit",
+        {"repo_url": "https://github.com/example/repo", "temporary_token": "ghp_secret"},
+        task_id="task-1",
+        attempts=2,
+        max_attempts=3,
+    )
+
+    await requeue_task(task, RuntimeError("boom"))
+
+    assert "ghp_secret" not in redis.items[0][1]
+    assert '"temporary_token_present":true' in redis.items[0][1]
+
+
+@pytest.mark.asyncio
 async def test_enqueue_task_creates_observable_task_record(monkeypatch) -> None:
     redis = FakeRedis()
     task_id = uuid.UUID("00000000-0000-0000-0000-000000000123")

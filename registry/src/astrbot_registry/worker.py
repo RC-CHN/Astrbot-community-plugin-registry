@@ -70,6 +70,9 @@ async def handle_task(task: dict) -> None:
                 plugin,
                 payload["version"],
                 ref=payload.get("ref"),
+                credential_id=payload.get("credential_id"),
+                temporary_token=payload.get("temporary_token"),
+                changelog=payload.get("changelog", ""),
                 created_by=payload.get("user_id"),
             )
         elif task_type == "scan":
@@ -82,6 +85,9 @@ async def handle_task(task: dict) -> None:
                 repo_url=payload["repo_url"],
                 version=payload.get("version"),
                 ref=payload.get("ref"),
+                credential_id=payload.get("credential_id"),
+                temporary_token=payload.get("temporary_token"),
+                changelog=payload.get("changelog", ""),
                 user_id=payload.get("user_id"),
             )
         else:

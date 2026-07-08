@@ -45,10 +45,26 @@ class PluginMetadata(BaseModel):
 def parse_metadata_yaml(path: Path) -> PluginMetadata:
     """Parse a metadata.yaml file into a PluginMetadata instance."""
     with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+        return parse_metadata_yaml_text(f.read())
+
+
+def parse_metadata_yaml_text(content: str) -> PluginMetadata:
+    """Parse metadata.yaml content into a PluginMetadata instance."""
+    data = yaml.safe_load(content)
     if not isinstance(data, dict):
         raise ValueError("metadata.yaml must be a YAML mapping")
     return PluginMetadata.model_validate(data)
+
+
+def overwrite_metadata_version(path: Path, version: str) -> None:
+    """Update the version field in metadata.yaml."""
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        raise ValueError("metadata.yaml must be a YAML mapping")
+    data["version"] = version
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 
 
 def infer_plugin_key(name: str) -> str:

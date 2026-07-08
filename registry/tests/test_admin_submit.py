@@ -28,6 +28,9 @@ async def test_submit_plugin_queues_submit_task(monkeypatch) -> None:
             repo_url="https://github.com/example/astrbot_plugin_test",
             version="v2",
             ref="main",
+            credential_id="cred-1",
+            temporary_token="ghp_secret",
+            changelog="changes",
         ),
         BackgroundTasks(),
         db=object(),
@@ -40,6 +43,9 @@ async def test_submit_plugin_queues_submit_task(monkeypatch) -> None:
         "repo_url": "https://github.com/example/astrbot_plugin_test",
         "version": "v2",
         "ref": "main",
+        "credential_id": "cred-1",
+        "temporary_token": "ghp_secret",
+        "changelog": "changes",
         "user_id": str(user_id),
     }
 

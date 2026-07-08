@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     git_preflight_timeout: int = 10
     git_max_repo_size_kb: int = 200 * 1024
     git_http_proxy: str = ""
+    github_token: str = ""
     build_network_disabled: bool = True
     git_allowed_hosts: Annotated[list[str], NoDecode] = ["github.com"]
     git_temp_prefix: str = "astrbot-repo-"

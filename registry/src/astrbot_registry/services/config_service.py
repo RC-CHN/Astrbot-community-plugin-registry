@@ -10,6 +10,7 @@ from .runtime_config import clear_runtime_config_cache
 SENSITIVE_CONFIG_KEYS = {
     "GITHUB_WEBHOOK_SECRET",
     "GIT_HTTP_PROXY",
+    "GITHUB_TOKEN",
     "VIRUSTOTAL_API_KEY",
     "LLM_AGENT_API_KEY",
 }
@@ -30,6 +31,7 @@ EFFECTIVE_CONFIG_DEFAULTS = {
     "GIT_PREFLIGHT_TIMEOUT": settings.git_preflight_timeout,
     "GIT_MAX_REPO_SIZE_KB": settings.git_max_repo_size_kb,
     "GIT_HTTP_PROXY": settings.git_http_proxy,
+    "GITHUB_TOKEN": settings.github_token,
     "SCAN_ENABLED_PROVIDERS": ",".join(settings.scan_enabled_providers),
     "SCAN_PASS_WHEN_UNCONFIGURED": settings.scan_pass_when_unconfigured,
     "SCAN_UNCONFIGURED_MESSAGE": settings.scan_unconfigured_message,

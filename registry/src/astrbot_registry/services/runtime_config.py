@@ -105,6 +105,10 @@ async def runtime_git_http_proxy(db: AsyncSession) -> str:
     return await get_runtime_value(db, "GIT_HTTP_PROXY", settings.git_http_proxy, str)
 
 
+async def runtime_github_token(db: AsyncSession) -> str:
+    return await get_runtime_value(db, "GITHUB_TOKEN", settings.github_token, str)
+
+
 async def runtime_git_allowed_hosts(db: AsyncSession) -> list[str]:
     return await get_runtime_value(db, "GIT_ALLOWED_HOSTS", settings.git_allowed_hosts, list)
 

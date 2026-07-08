@@ -84,6 +84,18 @@ def encode_task(task: dict[str, Any]) -> str:
     return json.dumps(task, separators=(",", ":"))
 
 
+def _redacted_task(task: dict[str, Any]) -> dict[str, Any]:
+    payload = task.get("payload")
+    if not isinstance(payload, dict) or "temporary_token" not in payload:
+        return task
+    redacted = dict(task)
+    redacted_payload = dict(payload)
+    redacted_payload.pop("temporary_token", None)
+    redacted_payload["temporary_token_present"] = True
+    redacted["payload"] = redacted_payload
+    return redacted
+
+
 async def push_task(redis, task: dict[str, Any], *, delay_seconds: float = 0) -> None:
     encoded = encode_task(task)
     if delay_seconds > 0:
@@ -114,7 +126,7 @@ async def requeue_task(task: dict[str, Any], error: Exception, db: AsyncSession 
     if task["attempts"] >= max_attempts:
         if db is not None:
             await mark_task_dead(db, task.get("id"), attempts=task["attempts"], error=str(error))
-        await redis.rpush(DEAD_LETTER_QUEUE_KEY, encode_task(task))
+        await redis.rpush(DEAD_LETTER_QUEUE_KEY, encode_task(_redacted_task(task)))
         return False
 
     retry_delay = await runtime_task_retry_delay_seconds(db)

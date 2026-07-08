@@ -97,6 +97,7 @@ async def test_runtime_git_preflight_config(monkeypatch) -> None:
     redis.hashes[runtime_config.RUNTIME_CONFIG_CACHE_KEY] = {
         "GIT_PREFLIGHT_TIMEOUT": "3",
         "GIT_MAX_REPO_SIZE_KB": "1024",
+        "GITHUB_TOKEN": "global_token",
     }
 
     async def fake_get_redis():
@@ -106,3 +107,4 @@ async def test_runtime_git_preflight_config(monkeypatch) -> None:
 
     assert await runtime_config.runtime_git_preflight_timeout(db=None) == 3  # type: ignore[arg-type]
     assert await runtime_config.runtime_git_max_repo_size_kb(db=None) == 1024  # type: ignore[arg-type]
+    assert await runtime_config.runtime_github_token(db=None) == "global_token"  # type: ignore[arg-type]

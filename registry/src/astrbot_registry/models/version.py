@@ -12,7 +12,6 @@ from sqlalchemy import (
     Index,
     String,
     Text,
-    UniqueConstraint,
     func,
     text,
 )
@@ -29,7 +28,6 @@ if TYPE_CHECKING:
 class PluginVersion(Base):
     __tablename__ = "plugin_versions"
     __table_args__ = (
-        UniqueConstraint("plugin_id", "version"),
         CheckConstraint(
             "source_type IN ('git_auto', 'manual_upload')",
             name="ck_versions_source_type",
@@ -57,6 +55,14 @@ class PluginVersion(Base):
             unique=True,
             postgresql_where=text("is_latest = true"),
         ),
+        Index("idx_versions_plugin_version", "plugin_id", "version"),
+        Index(
+            "idx_versions_git_commit_per_plugin",
+            "plugin_id",
+            "commit_sha",
+            unique=True,
+            postgresql_where=text("source_type = 'git_auto' AND commit_sha ~ '^[0-9a-fA-F]{40,64}$'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -71,6 +77,7 @@ class PluginVersion(Base):
     )
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     commit_sha: Mapped[str | None] = mapped_column(String(64))
+    source_ref: Mapped[str | None] = mapped_column(String(255))
     source_type: Mapped[str] = mapped_column(
         String(32),
         default="git_auto",

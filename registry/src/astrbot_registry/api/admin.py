@@ -33,6 +33,10 @@ from ..schemas.admin import (
     PluginDetail,
     PluginCreateRequest,
     PluginListResponse,
+    RepoInspectRequest,
+    RepoInspectResponse,
+    RepoResolveRequest,
+    RepoResolveResponse,
     PublishVersionRequest,
     PluginStatusUpdate,
     PluginSubmitResponse,
@@ -59,6 +63,7 @@ from ..services.plugin_service import (
     create_plugin,
     create_version_from_upload,
     delete_plugin,
+    delete_version,
     get_plugin,
     get_plugin_with_details,
     list_plugins,
@@ -70,8 +75,11 @@ from ..services.plugin_service import (
     update_plugin,
 )
 from ..services.registry_service import refresh_cache
+from ..services.repo_inspection_service import inspect_git_repo, resolve_git_ref
 from ..services.runtime_config import (
     runtime_git_allowed_hosts,
+    runtime_git_http_proxy,
+    runtime_git_preflight_timeout,
     runtime_scan_enabled_providers,
     runtime_upload_limits,
     runtime_webhook_auto_version,
@@ -93,7 +101,7 @@ from ..services.task_observability import (
     worker_runtime_status,
 )
 from ..services.task_queue import enqueue_task
-from ..utils.git_utils import parse_github_url
+from ..utils.git_utils import GitError, parse_github_url
 from ..utils.metadata_parser import parse_metadata_yaml
 from ..utils.zip_utils import (
     ZipValidationError,
@@ -113,7 +121,9 @@ def _version_summary(version, required_scan_providers: list[str] | None = None) 
         "id": str(version.id),
         "version": version.version,
         "source_type": version.source_type,
+        "source_ref": version.source_ref,
         "commit_sha": version.commit_sha,
+        "changelog": version.changelog,
         "build_status": version.build_status,
         "build_log": version.build_log,
         "version_status": version.version_status,
@@ -143,15 +153,27 @@ def _plugin_summary(plugin) -> dict:
 
 async def _build_version_task(
     plugin_id: str,
-    version: str,
+    version: str | None,
     ref: str | None,
+    credential_id: str | None,
+    temporary_token: str | None,
+    changelog: str,
     user_id: str,
 ) -> None:
     async with async_session() as db:
         plugin = await get_plugin(db, uuid.UUID(plugin_id))
         if plugin is None:
             return
-        await build_from_repo(db, plugin, version, ref=ref, created_by=user_id)
+        await build_from_repo(
+            db,
+            plugin,
+            version,
+            ref=ref,
+            credential_id=credential_id,
+            temporary_token=temporary_token,
+            changelog=changelog,
+            created_by=user_id,
+        )
 
 
 async def _scan_version_task(version_id: str, providers: list[str] | None = None) -> None:
@@ -159,9 +181,26 @@ async def _scan_version_task(version_id: str, providers: list[str] | None = None
         await scan_version(db, uuid.UUID(version_id), providers=providers)
 
 
-async def _submit_repo_task(repo_url: str, version: str | None, ref: str | None, user_id: str) -> None:
+async def _submit_repo_task(
+    repo_url: str,
+    version: str | None,
+    ref: str | None,
+    credential_id: str | None,
+    temporary_token: str | None,
+    changelog: str,
+    user_id: str,
+) -> None:
     async with async_session() as db:
-        await submit_repo(db, repo_url=repo_url, version=version, ref=ref, user_id=user_id)
+        await submit_repo(
+            db,
+            repo_url=repo_url,
+            version=version,
+            ref=ref,
+            credential_id=credential_id,
+            temporary_token=temporary_token,
+            changelog=changelog,
+            user_id=user_id,
+        )
 
 
 async def _enqueue_or_fallback(
@@ -179,6 +218,9 @@ async def _enqueue_or_fallback(
             payload["plugin_id"],
             payload["version"],
             payload.get("ref"),
+            payload.get("credential_id"),
+            payload.get("temporary_token"),
+            payload.get("changelog", ""),
             payload.get("user_id", ""),
         )
     elif task_type == "scan":
@@ -189,6 +231,9 @@ async def _enqueue_or_fallback(
             payload["repo_url"],
             payload.get("version"),
             payload.get("ref"),
+            payload.get("credential_id"),
+            payload.get("temporary_token"),
+            payload.get("changelog", ""),
             payload.get("user_id", ""),
         )
 
@@ -326,6 +371,57 @@ async def list_plugins_endpoint(
     }
 
 
+@admin_router.post("/plugins/inspect-repo", response_model=RepoInspectResponse)
+async def inspect_plugin_repo_endpoint(
+    request: RepoInspectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    try:
+        git_allowed_hosts = await runtime_git_allowed_hosts(db)
+        git_http_proxy = await runtime_git_http_proxy(db)
+        git_preflight_timeout = await runtime_git_preflight_timeout(db)
+        return await inspect_git_repo(
+            db,
+            repo_url=request.repo_url,
+            temporary_token=request.temporary_token,
+            credential_id=request.credential_id,
+            ref_type=request.ref_type,
+            ref=request.ref,
+            include_refs=request.include_refs,
+            allowed_hosts=git_allowed_hosts,
+            proxy_url=git_http_proxy,
+            timeout=git_preflight_timeout,
+        )
+    except (ValueError, GitError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@admin_router.post("/plugins/resolve-ref", response_model=RepoResolveResponse)
+async def resolve_plugin_ref_endpoint(
+    request: RepoResolveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_reviewer),
+) -> dict:
+    try:
+        git_allowed_hosts = await runtime_git_allowed_hosts(db)
+        git_http_proxy = await runtime_git_http_proxy(db)
+        git_preflight_timeout = await runtime_git_preflight_timeout(db)
+        return await resolve_git_ref(
+            db,
+            repo_url=request.repo_url,
+            temporary_token=request.temporary_token,
+            credential_id=request.credential_id,
+            ref_type=request.ref_type,
+            ref=request.ref,
+            allowed_hosts=git_allowed_hosts,
+            proxy_url=git_http_proxy,
+            timeout=git_preflight_timeout,
+        )
+    except (ValueError, GitError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @admin_router.post("/plugins", response_model=PluginSubmitResponse)
 async def submit_plugin(
     request: PluginCreateRequest,
@@ -346,6 +442,9 @@ async def submit_plugin(
             "repo_url": request.repo_url,
             "version": request.version,
             "ref": request.ref,
+            "credential_id": request.credential_id,
+            "temporary_token": request.temporary_token,
+            "changelog": request.changelog,
             "user_id": str(current_user.id),
         },
         db,
@@ -454,6 +553,17 @@ async def list_versions_endpoint(
     return [_version_summary(v, required_scan_providers) for v in versions]
 
 
+@admin_router.delete("/plugins/{plugin_id}/versions/{version_id}", response_model=StatusResponse)
+async def delete_version_endpoint(
+    plugin_id: str,
+    version_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> dict:
+    await delete_version(db, uuid.UUID(plugin_id), uuid.UUID(version_id))
+    return {"status": "deleted"}
+
+
 @admin_router.post("/plugins/{plugin_id}/versions", response_model=VersionSubmitResponse)
 async def create_version_from_repo(
     plugin_id: str,
@@ -473,6 +583,9 @@ async def create_version_from_repo(
             "plugin_id": plugin_id,
             "version": request.version,
             "ref": request.ref,
+            "credential_id": request.credential_id,
+            "temporary_token": request.temporary_token,
+            "changelog": request.changelog,
             "user_id": str(current_user.id),
         },
         db,
@@ -620,6 +733,9 @@ async def trigger_build(
             "plugin_id": plugin_id,
             "version": request.version,
             "ref": request.ref,
+            "credential_id": request.credential_id,
+            "temporary_token": request.temporary_token,
+            "changelog": request.changelog,
             "user_id": str(current_user.id),
         },
         db,
@@ -872,6 +988,7 @@ async def github_webhook(
                 "plugin_id": str(plugin.id),
                 "version": webhook_auto_version,
                 "ref": ref,
+                "changelog": "",
                 "user_id": "",
             },
             db,

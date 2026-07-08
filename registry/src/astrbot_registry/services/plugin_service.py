@@ -12,7 +12,7 @@ from ..models import Plugin, PluginI18n, PluginVersion, ReviewProviderResult, Ta
 from ..schemas.plugin import PluginUpdate
 from ..services.errors import ConflictError, InvalidStateError, NotFoundError, ValidationError
 from ..services.runtime_config import runtime_s3_layout, runtime_s3_public_url, runtime_scan_enabled_providers
-from ..services.s3_service import build_public_url_with_base, build_s3_key_with_layout, upload_file
+from ..services.s3_service import build_public_url_with_base, build_s3_key_with_layout, delete_file, upload_file
 from ..services.scan_service import scan_providers_passed
 from ..utils.metadata_parser import PluginMetadata, infer_plugin_key
 
@@ -49,12 +49,28 @@ async def get_version_by_plugin_and_number(
     plugin_id: uuid.UUID,
     version: str,
 ) -> PluginVersion | None:
-    result = await db.execute(
+    return await db.scalar(
         select(PluginVersion)
         .where(PluginVersion.plugin_id == plugin_id)
         .where(PluginVersion.version == version)
+        .order_by(PluginVersion.created_at.desc())
+        .limit(1)
     )
-    return result.scalar_one_or_none()
+
+
+async def get_version_by_plugin_and_commit(
+    db: AsyncSession,
+    plugin_id: uuid.UUID,
+    commit_sha: str,
+) -> PluginVersion | None:
+    return await db.scalar(
+        select(PluginVersion)
+        .where(PluginVersion.plugin_id == plugin_id)
+        .where(PluginVersion.source_type == "git_auto")
+        .where(PluginVersion.commit_sha == commit_sha)
+        .order_by(PluginVersion.created_at.desc())
+        .limit(1)
+    )
 
 
 async def get_latest_version(db: AsyncSession, plugin_id: uuid.UUID) -> PluginVersion | None:
@@ -169,6 +185,10 @@ async def delete_plugin(db: AsyncSession, plugin_id: uuid.UUID) -> Plugin:
     plugin = await get_plugin(db, plugin_id)
     if plugin is None:
         raise NotFoundError("Plugin not found")
+    result = await db.execute(select(PluginVersion.s3_key).where(PluginVersion.plugin_id == plugin_id))
+    for s3_key in result.scalars():
+        if s3_key:
+            await delete_file(s3_key)
     await db.execute(
         update(PluginVersion)
         .where(PluginVersion.plugin_id == plugin_id)
@@ -181,6 +201,18 @@ async def delete_plugin(db: AsyncSession, plugin_id: uuid.UUID) -> Plugin:
     return plugin
 
 
+async def delete_version(db: AsyncSession, plugin_id: uuid.UUID, version_id: uuid.UUID) -> PluginVersion:
+    version = await get_version(db, version_id)
+    if version is None or version.plugin_id != plugin_id:
+        raise NotFoundError("Version not found")
+    if version.s3_key:
+        await delete_file(version.s3_key)
+    await db.execute(delete(PluginVersion).where(PluginVersion.id == version_id))
+    await db.commit()
+    await _refresh_registry_cache(db)
+    return version
+
+
 async def create_version(
     db: AsyncSession,
     plugin: Plugin,
@@ -191,22 +223,16 @@ async def create_version(
     file_size: int,
     source_type: str,
     commit_sha: str | None = None,
+    source_ref: str | None = None,
     changelog: str = "",
     created_by: uuid.UUID | None = None,
     build_status: str = "pending",
 ) -> PluginVersion:
-    existing = await db.execute(
-        select(PluginVersion)
-        .where(PluginVersion.plugin_id == plugin.id)
-        .where(PluginVersion.version == version)
-    )
-    if existing.scalar_one_or_none() is not None:
-        raise ConflictError(f"Version {version} already exists for plugin {plugin.plugin_key}")
-
     pv = PluginVersion(
         plugin_id=plugin.id,
         version=version,
         commit_sha=commit_sha,
+        source_ref=source_ref,
         source_type=source_type,
         s3_key=s3_key,
         download_url=download_url,

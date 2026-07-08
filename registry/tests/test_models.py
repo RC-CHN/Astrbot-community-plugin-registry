@@ -1,3 +1,5 @@
+from sqlalchemy import UniqueConstraint
+
 from astrbot_registry.models import (
     Plugin,
     PluginVersion,
@@ -45,6 +47,29 @@ def test_latest_partial_unique_index_is_declared() -> None:
 
     assert index.unique is True
     assert str(index.dialect_options["postgresql"]["where"]) == "is_latest = true"
+
+
+def test_version_identity_allows_duplicate_metadata_versions() -> None:
+    unique_constraints = [
+        constraint
+        for constraint in PluginVersion.__table__.constraints
+        if isinstance(constraint, UniqueConstraint)
+    ]
+    index_names = {index.name for index in PluginVersion.__table__.indexes}
+    commit_index = next(
+        item
+        for item in PluginVersion.__table__.indexes
+        if item.name == "idx_versions_git_commit_per_plugin"
+    )
+
+    assert not any({"plugin_id", "version"} == set(constraint.columns.keys()) for constraint in unique_constraints)
+    assert "source_ref" in PluginVersion.__table__.c
+    assert "idx_versions_plugin_version" in index_names
+    assert commit_index.unique is True
+    assert (
+        str(commit_index.dialect_options["postgresql"]["where"])
+        == "source_type = 'git_auto' AND commit_sha ~ '^[0-9a-fA-F]{40,64}$'"
+    )
 
 
 def test_security_scan_version_is_unique() -> None:

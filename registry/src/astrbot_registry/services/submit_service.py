@@ -5,11 +5,11 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..services.build_service import build_from_repo
+from ..services.git_providers import GitCredential, get_git_provider_for_url
 from ..services.plugin_service import (
     assert_metadata_matches_plugin,
     create_plugin,
     get_plugin_by_key,
-    get_version_by_plugin_and_number,
 )
 from ..services.runtime_config import (
     runtime_git_allowed_hosts,
@@ -17,10 +17,10 @@ from ..services.runtime_config import (
     runtime_git_http_proxy,
     runtime_git_max_repo_size_kb,
     runtime_git_preflight_timeout,
+    runtime_github_token,
 )
-from ..utils.git_utils import clone_repo, get_metadata_path, preflight_github_repo_size, temp_repo_dir
+from ..utils.git_utils import get_metadata_path, temp_repo_dir
 from ..utils.metadata_parser import infer_plugin_key, parse_metadata_yaml
-from .errors import ConflictError
 
 
 async def submit_repo(
@@ -29,6 +29,9 @@ async def submit_repo(
     repo_url: str,
     version: str | None = None,
     ref: str | None = None,
+    credential_id: str | None = None,
+    temporary_token: str | None = None,
+    changelog: str = "",
     user_id: str | None = None,
 ) -> None:
     git_clone_timeout = await runtime_git_clone_timeout(db)
@@ -36,17 +39,23 @@ async def submit_repo(
     git_max_repo_size_kb = await runtime_git_max_repo_size_kb(db)
     git_allowed_hosts = await runtime_git_allowed_hosts(db)
     git_http_proxy = await runtime_git_http_proxy(db)
-    preflight_github_repo_size(
-        repo_url,
+    effective_token = temporary_token or await runtime_github_token(db)
+    provider = get_git_provider_for_url(repo_url, allowed_hosts=git_allowed_hosts)
+    credential = GitCredential(temporary_token=effective_token, credential_id=credential_id)
+    preflight_url = provider.normalize_url(repo_url, allowed_hosts=git_allowed_hosts).repo_url
+    provider.preflight_repo_size(
+        preflight_url,
+        credential=credential,
         max_size_kb=git_max_repo_size_kb,
         timeout=git_preflight_timeout,
         allowed_hosts=git_allowed_hosts,
         proxy_url=git_http_proxy,
     )
     with temp_repo_dir() as repo_dir:
-        clone_repo(
-            repo_url,
+        provider.clone_repo(
+            preflight_url,
             repo_dir,
+            credential=credential,
             ref=ref,
             timeout=git_clone_timeout,
             allowed_hosts=git_allowed_hosts,
@@ -59,14 +68,20 @@ async def submit_repo(
         plugin = await create_plugin(
             db,
             metadata,
-            repo_url,
+            preflight_url,
             created_by=uuid.UUID(user_id) if user_id else None,
         )
     else:
         assert_metadata_matches_plugin(metadata, plugin)
 
     version_str = version or metadata.version
-    if await get_version_by_plugin_and_number(db, plugin.id, version_str):
-        raise ConflictError(f"Version {version_str} already exists for plugin {plugin.plugin_key}")
-
-    await build_from_repo(db, plugin, version_str, ref=ref, created_by=user_id)
+    await build_from_repo(
+        db,
+        plugin,
+        version_str,
+        ref=ref,
+        credential_id=credential_id,
+        temporary_token=temporary_token,
+        changelog=changelog,
+        created_by=user_id,
+    )

@@ -12,6 +12,18 @@ def test_pending_plugins_route_precedes_plugin_detail_route() -> None:
     assert paths.index("/admin/plugins/pending") < paths.index("/admin/plugins/{plugin_id}")
 
 
+def test_inspect_repo_route_precedes_plugin_detail_route() -> None:
+    paths = [route.path for route in admin_router.routes if hasattr(route, "path")]
+
+    assert paths.index("/admin/plugins/inspect-repo") < paths.index("/admin/plugins/{plugin_id}")
+
+
+def test_resolve_ref_route_precedes_plugin_detail_route() -> None:
+    paths = [route.path for route in admin_router.routes if hasattr(route, "path")]
+
+    assert paths.index("/admin/plugins/resolve-ref") < paths.index("/admin/plugins/{plugin_id}")
+
+
 def test_publish_version_route_precedes_version_status_route() -> None:
     paths = [route.path for route in admin_router.routes if hasattr(route, "path")]
 

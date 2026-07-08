@@ -32,13 +32,98 @@ class PluginCreateRequest(BaseModel):
     repo_url: str
     version: str | None = None
     ref: str | None = None
+    credential_id: str | None = None
+    temporary_token: str | None = Field(default=None, max_length=4096)
     changelog: str = ""
+
+
+class RepoInspectRequest(BaseModel):
+    repo_url: str
+    provider: str | None = None
+    credential_id: str | None = None
+    temporary_token: str | None = Field(default=None, max_length=4096)
+    ref_type: Literal["default", "branch", "tag", "commit"] | None = None
+    ref: str | None = None
+    include_refs: bool = True
+
+
+class RepoResolveRequest(BaseModel):
+    repo_url: str
+    provider: str | None = None
+    credential_id: str | None = None
+    temporary_token: str | None = Field(default=None, max_length=4096)
+    ref_type: Literal["default", "branch", "tag", "commit"] | None = None
+    ref: str | None = None
+
+
+class RepoRefOption(BaseModel):
+    name: str
+    commit_sha: str
+    protected: bool = False
+
+
+class RepoCommitInfo(BaseModel):
+    sha: str
+    message: str | None = None
+    author_name: str | None = None
+    committed_at: datetime | None = None
+
+
+class RepoMetadataPreview(BaseModel):
+    name: str
+    plugin_key: str
+    display_name: str | None = None
+    desc: str
+    author: str
+    version: str
+    repo: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    astrbot_version: str | None = None
+
+
+class RepoPluginMatch(BaseModel):
+    status: Literal["new_plugin", "new_commit", "duplicate_commit"]
+    plugin_id: str | None = None
+    plugin_key: str | None = None
+    duplicate_version_count: int = 0
+    duplicate_commit_version_id: str | None = None
+
+
+class RepoInspectResponse(BaseModel):
+    provider: str
+    repo_url: str
+    host: str
+    owner: str
+    repo: str
+    private: bool
+    default_branch: str
+    size_kb: int
+    updated_at: datetime | None = None
+    detected_ref_type: Literal["branch", "tag", "commit"] | None = None
+    detected_ref: str | None = None
+    selected_ref_type: Literal["default", "branch", "tag", "commit"]
+    selected_ref: str
+    selected_commit: RepoCommitInfo
+    metadata: RepoMetadataPreview
+    match: RepoPluginMatch
+    branches: list[RepoRefOption] = Field(default_factory=list)
+    tags: list[RepoRefOption] = Field(default_factory=list)
+
+
+class RepoResolveResponse(BaseModel):
+    selected_ref_type: Literal["default", "branch", "tag", "commit"]
+    selected_ref: str
+    selected_commit: RepoCommitInfo
+    metadata: RepoMetadataPreview
+    match: RepoPluginMatch
 
 
 class VersionCreate(BaseModel):
-    version: str
+    version: str | None = None
     changelog: str = ""
     ref: str | None = None
+    credential_id: str | None = None
+    temporary_token: str | None = Field(default=None, max_length=4096)
 
 
 class VersionStatusUpdate(BaseModel):
@@ -107,7 +192,9 @@ class VersionSummary(BaseModel):
     id: str
     version: str
     source_type: str
+    source_ref: str | None = None
     commit_sha: str | None = None
+    changelog: str | None = None
     build_status: str
     build_log: str | None = None
     version_status: str

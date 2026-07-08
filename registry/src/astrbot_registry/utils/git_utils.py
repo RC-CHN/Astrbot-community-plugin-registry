@@ -1,6 +1,8 @@
 """GitHub URL parsing and repository cloning helpers."""
 
+import base64
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -48,6 +50,7 @@ def preflight_github_repo_size(
     timeout: int | None = None,
     allowed_hosts: list[str] | None = None,
     proxy_url: str | None = None,
+    github_token: str | None = None,
 ) -> int | None:
     """Validate GitHub repository size before cloning.
 
@@ -64,6 +67,7 @@ def preflight_github_repo_size(
         timeout=timeout,
         allowed_hosts=allowed_hosts,
         proxy_url=proxy_url,
+        github_token=github_token,
     )
     if size_kb > max_size_kb:
         raise GitError(
@@ -78,15 +82,13 @@ def fetch_github_repo_size_kb(
     timeout: int | None = None,
     allowed_hosts: list[str] | None = None,
     proxy_url: str | None = None,
+    github_token: str | None = None,
 ) -> int:
     owner, repo = parse_github_url(repo_url, allowed_hosts=allowed_hosts)
     api_url = f"https://api.github.com/repos/{quote(owner)}/{quote(repo)}"
     request = urllib.request.Request(
         api_url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "AstrBot-Community-Plugin-Registry",
-        },
+        headers=_github_api_headers(github_token),
     )
     opener = _url_opener(proxy_url)
 
@@ -124,6 +126,7 @@ def clone_repo(
     timeout: int | None = None,
     allowed_hosts: list[str] | None = None,
     proxy_url: str | None = None,
+    github_token: str | None = None,
 ) -> None:
     """Clone a git repository into ``dest``.
 
@@ -135,6 +138,7 @@ def clone_repo(
         shutil.rmtree(dest)
     parse_github_url(repo_url, allowed_hosts=allowed_hosts)
     proxy_args = _git_proxy_args(proxy_url)
+    env = _git_env(github_token)
 
     try:
         if ref and _is_sha(ref):
@@ -144,6 +148,7 @@ def clone_repo(
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                env=env,
             )
             subprocess.run(
                 ["git", "-C", str(dest), "checkout", ref],
@@ -151,6 +156,7 @@ def clone_repo(
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                env=env,
             )
         elif ref:
             subprocess.run(
@@ -170,6 +176,7 @@ def clone_repo(
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                env=env,
             )
         else:
             subprocess.run(
@@ -187,9 +194,10 @@ def clone_repo(
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                env=env,
             )
     except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr or ""
+        stderr = _redact_secret(exc.stderr or "", github_token)
         raise GitError(f"Failed to clone {repo_url}: {stderr}") from exc
     except subprocess.TimeoutExpired as exc:
         raise GitError(f"Timed out cloning {repo_url}") from exc
@@ -205,6 +213,38 @@ def _git_proxy_args(proxy_url: str | None) -> list[str]:
         "-c",
         f"https.proxy={proxy_url}",
     ]
+
+
+def _github_api_headers(github_token: str | None = None) -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "AstrBot-Community-Plugin-Registry",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    github_token = (github_token or "").strip()
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+    return headers
+
+
+def _git_env(github_token: str | None) -> dict[str, str] | None:
+    github_token = (github_token or "").strip()
+    if not github_token:
+        return None
+    env = os.environ.copy()
+    encoded = base64.b64encode(f"x-access-token:{github_token}".encode()).decode()
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"
+    env["GIT_CONFIG_VALUE_0"] = f"Authorization: Basic {encoded}"
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def _redact_secret(value: str, secret: str | None) -> str:
+    secret = (secret or "").strip()
+    if not secret:
+        return value
+    return value.replace(secret, "[redacted]")
 
 
 def get_commit_sha(repo_dir: Path) -> str:

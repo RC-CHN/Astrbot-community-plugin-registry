@@ -38,6 +38,16 @@ def payload_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if key in allowed and value not in (None, "")}
 
 
+def stored_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the task payload safe to persist for operator visibility."""
+    if not payload:
+        return {}
+    redacted = {key: value for key, value in payload.items() if key != "temporary_token"}
+    if payload.get("temporary_token"):
+        redacted["temporary_token_present"] = True
+    return redacted
+
+
 async def create_worker_task(
     db: AsyncSession,
     task_type: str,
@@ -55,7 +65,7 @@ async def create_worker_task(
         plugin_id=plugin_id,
         version_id=version_id,
         provider=_task_provider(payload),
-        payload=payload,
+        payload=stored_payload(payload),
         max_attempts=max_attempts or settings.task_max_attempts,
         next_run_at=now_utc() + timedelta(seconds=delay_seconds) if delay_seconds > 0 else None,
     )

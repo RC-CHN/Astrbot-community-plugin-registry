@@ -65,6 +65,7 @@ def test_config_response_redacts_sensitive_values() -> None:
     response = build_config_response({
         "GITHUB_WEBHOOK_SECRET": "secret",
         "GIT_HTTP_PROXY": "http://user:pass@proxy.example:8080",
+        "GITHUB_TOKEN": "global_token",
     })
 
     assert "GITHUB_WEBHOOK_SECRET" not in response["values"]
@@ -73,6 +74,9 @@ def test_config_response_redacts_sensitive_values() -> None:
     assert "GIT_HTTP_PROXY" not in response["values"]
     assert "GIT_HTTP_PROXY" not in response["effective_values"]
     assert response["sensitive_status"]["GIT_HTTP_PROXY"] is True
+    assert "GITHUB_TOKEN" not in response["values"]
+    assert "GITHUB_TOKEN" not in response["effective_values"]
+    assert response["sensitive_status"]["GITHUB_TOKEN"] is True
 
 
 def test_config_response_includes_masked_deployment_values() -> None:
